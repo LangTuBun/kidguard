@@ -251,13 +251,17 @@ async function listPollTargets() {
 
   const envChildIds = parseCsvIds(process.env.ARDUINO_CHILD_IDS || process.env.ARDUINO_CHILD_ID || '')
   const envThingIds = parseCsvIds(process.env.ARDUINO_THING_IDS || process.env.ARDUINO_THING_ID || '')
+  const envClientIds = parseCsvIds(process.env.ARDUINO_CLIENT_IDS || '')
+  const envClientSecrets = parseCsvIds(process.env.ARDUINO_CLIENT_SECRETS || '')
 
   const fallbackTargets = []
   const max = Math.max(envChildIds.length, envThingIds.length)
   for (let i = 0; i < max; i += 1) {
     const childId = envChildIds[i] || envThingIds[i]
     const thingId = envThingIds[i] || envChildIds[i]
-    if (childId && thingId) fallbackTargets.push({ childId, thingId })
+    const clientId = envClientIds[i]
+    const clientSecret = envClientSecrets[i]
+    if (childId && thingId) fallbackTargets.push({ childId, thingId, clientId, clientSecret })
   }
   return fallbackTargets
 }
