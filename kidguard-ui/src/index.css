@@ -1,0 +1,58 @@
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap');
+@import "tailwindcss";
+
+:root {
+  --bg-base:        #E8E4DC;
+  --bg-card:        #FFFFFF;
+  --bg-dark:        #0D0D0D;
+  --border:         #0D0D0D;
+  --border-width:   2px;
+  --border-heavy:   3px;
+  --slab-blue:      #2A5BF5;
+  --slab-orange:    #E8631A;
+  --slab-red:       #D92B2B;
+  --slab-green:     #1A8C4E;
+  --text-primary:   #0D0D0D;
+  --text-on-slab:   #FFFFFF;
+  --text-muted:     #5C5852;
+  --font-display:   'Syne', sans-serif;
+  --font-body:      'DM Sans', sans-serif;
+  --font-mono:      'JetBrains Mono', monospace;
+}
+
+* {
+  border-radius: 0 !important;
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--bg-base);
+  font-family: var(--font-body);
+  color: var(--text-primary);
+  margin: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+.leaflet-container {
+  z-index: 1;
+}
+
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom,
+.leaflet-control-container {
+  z-index: 1 !important;
+}
+
+@keyframes brutalPulse {
+  0%   { transform: scale(1);   opacity: 0.9; }
+  100% { transform: scale(1.1); opacity: 0; }
+}
+
+@keyframes pulse-scale {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.15); }
+}

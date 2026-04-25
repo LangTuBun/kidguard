@@ -1,0 +1,14 @@
+node_modules/
+*/node_modules/
+
+# Env files: track clms-backend/.env only if you commit placeholders (never push real secrets to a public repo).
+*/.env
+.env
+kidguard-ui/.env
+*.md 
+clms-backend/target/
+*.log
+
+# Vite production build (regenerate with npm run build)
+kidguard-ui/dist/
+
