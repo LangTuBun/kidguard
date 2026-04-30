@@ -22,3 +22,12 @@ export function decodeToken(token) {
     return JSON.parse(atob(payload))
   } catch { return null }
 }
+
+/** True if a token exists and its `exp` claim is still in the future. */
+export function isTokenValid() {
+  const t = getToken()
+  if (!t) return false
+  const payload = decodeToken(t)
+  if (!payload?.exp) return false
+  return payload.exp * 1000 > Date.now()
+}

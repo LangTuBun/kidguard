@@ -2,6 +2,9 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
 import MobileFrame from '../../components/MobileFrame'
+import Input from '../../components/Input'
+import Button from '../../components/Button'
+import { setToken, setUser } from '../../utils/auth'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
 
@@ -9,6 +12,30 @@ export default function Login() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+
+  const handlePasswordLogin = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message || 'Login failed')
+      setToken(data.token)
+      setUser({ email: data.email, name: data.name })
+      navigate('/dashboard')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleGoogleSuccess = async (credentialResponse) => {
     setLoading(true)
@@ -21,7 +48,6 @@ export default function Login() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Authentication failed')
-      // Pass email + original idToken to OTP screen (for resend)
       navigate('/mfa', { state: { email: data.email, idToken: credentialResponse.credential } })
     } catch (err) {
       setError(err.message)
@@ -49,25 +75,60 @@ export default function Login() {
 
       {/* Body */}
       <div style={{
-        flex: 1, padding: '40px 20px 20px',
-        display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '0',
+        flex: 1, overflowY: 'auto', padding: '24px 20px 20px',
+        display: 'flex', flexDirection: 'column', gap: '0',
       }}>
         <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '32px', marginBottom: '8px' }}>
           WELCOME BACK.
         </div>
-        <p style={{ fontSize: '14px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', margin: '0 0 40px' }}>
-          Sign in securely with your Google account.
+        <p style={{ fontSize: '14px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', margin: '0 0 24px' }}>
+          Sign in with your email or continue with Google.
         </p>
+
+        {/* Email/password form */}
+        <form onSubmit={handlePasswordLogin} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <Input
+            label="Email"
+            type="email"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <Input
+            label="Password"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button fullWidth variant="primary" onClick={handlePasswordLogin}>
+            {loading ? 'SIGNING IN…' : 'SIGN IN →'}
+          </Button>
+        </form>
+
+        {/* Divider */}
+        <div style={{ position: 'relative', margin: '20px 0' }}>
+          <div style={{ height: '2px', background: 'var(--border)' }} />
+          <span style={{
+            position: 'absolute', top: '50%', left: '50%',
+            transform: 'translate(-50%, -50%)',
+            background: 'var(--bg-base)', padding: '0 8px',
+            fontSize: '11px', fontWeight: 600, letterSpacing: '0.12em',
+            textTransform: 'uppercase', fontFamily: 'var(--font-body)',
+          }}>
+            OR
+          </span>
+        </div>
 
         {/* Google Sign-In */}
         <div style={{
           border: '2px solid var(--border)',
-          padding: '24px',
+          padding: '20px',
           background: '#fff',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'center',
-          gap: '16px',
+          gap: '12px',
           boxShadow: '4px 4px 0 #0D0D0D',
         }}>
           <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
@@ -90,44 +151,26 @@ export default function Login() {
               width="280"
             />
           )}
-
-          {error && (
-            <div style={{
-              width: '100%', padding: '10px 12px',
-              background: '#fff0f0', border: '2px solid var(--slab-red)',
-              fontSize: '12px', fontFamily: 'var(--font-body)',
-              color: 'var(--slab-red)', fontWeight: 600,
-            }}>
-              ⚠ {error}
-            </div>
-          )}
         </div>
 
-        {/* Info notice */}
-        <div style={{
-          marginTop: '20px',
-          background: 'var(--bg-base)', border: '2px solid var(--border)', padding: '12px',
-          display: 'flex', alignItems: 'center', gap: '8px',
-        }}>
-          <span style={{ fontSize: '16px' }}>✱</span>
-          <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
-            A 6-digit verification code will be sent to your email after Google sign-in.
-          </span>
-        </div>
-
-        {/* 2FA badge */}
-        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+        {error && (
           <div style={{
-            background: 'var(--bg-dark)', color: '#fff',
-            fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em',
-            padding: '3px 8px', fontFamily: 'var(--font-body)',
+            marginTop: '16px', padding: '10px 12px',
+            background: '#fff0f0', border: '2px solid var(--slab-red)',
+            fontSize: '12px', fontFamily: 'var(--font-body)',
+            color: 'var(--slab-red)', fontWeight: 600,
           }}>
-            2FA ENABLED
+            ⚠ {error}
           </div>
-          <span style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
-            Email OTP required every login
-          </span>
-        </div>
+        )}
+
+        {/* Sign-up link */}
+        <p
+          style={{ textAlign: 'center', fontSize: '12px', color: 'var(--slab-blue)', cursor: 'pointer', margin: '20px 0 0', fontFamily: 'var(--font-body)' }}
+          onClick={() => navigate('/register')}
+        >
+          New here? <strong>CREATE ACCOUNT</strong>
+        </p>
       </div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

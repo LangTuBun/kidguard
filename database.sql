@@ -136,6 +136,3 @@ INSERT INTO location_history (
   0,
   NULL
 );
-
-
-

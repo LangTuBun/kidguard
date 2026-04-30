@@ -23,6 +23,7 @@ import SOSSent from './screens/child/SOSSent'
 import SOSQueued from './screens/child/SOSQueued'
 
 import NavIndex from './screens/NavIndex'
+import ProtectedRoute from './components/ProtectedRoute'
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || ''
 
@@ -35,15 +36,15 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route path="/login" element={<Login />} />
           <Route path="/mfa" element={<MFAVerify />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/map" element={<LiveMap />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/zones" element={<SafeZones />} />
-          <Route path="/zones/add" element={<AddZone />} />
-          <Route path="/notifications" element={<Notifications />} />
-          <Route path="/sos-alert" element={<SOSModal />} />
-          <Route path="/child-profile" element={<ChildProfile />} />
-          <Route path="/settings" element={<Settings />} />
+          <Route path="/dashboard"     element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+          <Route path="/map"           element={<ProtectedRoute><LiveMap /></ProtectedRoute>} />
+          <Route path="/history"       element={<ProtectedRoute><History /></ProtectedRoute>} />
+          <Route path="/zones"         element={<ProtectedRoute><SafeZones /></ProtectedRoute>} />
+          <Route path="/zones/add"     element={<ProtectedRoute><AddZone /></ProtectedRoute>} />
+          <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
+          <Route path="/sos-alert"     element={<ProtectedRoute><SOSModal /></ProtectedRoute>} />
+          <Route path="/child-profile" element={<ProtectedRoute><ChildProfile /></ProtectedRoute>} />
+          <Route path="/settings"      element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/offline" element={<Offline />} />
           <Route path="/child/login" element={<ChildLogin />} />
           <Route path="/child" element={<ChildHome />} />

@@ -5,6 +5,7 @@ import mysql from 'mysql2/promise'
 import { OAuth2Client } from 'google-auth-library'
 import nodemailer from 'nodemailer'
 import jwt from 'jsonwebtoken'
+import bcrypt from 'bcrypt'
 
 import { fetchThingPropertiesRaw, pickLatLngFromPropertiesPayload } from './arduinoCloud.js'
 import { tryExtractLatLngFromGpsJsonValue } from './gpsParse.js'
@@ -216,17 +217,26 @@ async function ensureSchema() {
   // ── Auth / Users table ──────────────────────────────────────────────────────
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
-      id         BIGINT AUTO_INCREMENT PRIMARY KEY,
-      email      VARCHAR(255) NOT NULL UNIQUE,
-      name       VARCHAR(255),
-      google_sub VARCHAR(255),
-      otp_code   VARCHAR(6),
-      otp_expiry BIGINT,
-      settings   JSON,
-      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      id            BIGINT AUTO_INCREMENT PRIMARY KEY,
+      email         VARCHAR(255) NOT NULL UNIQUE,
+      name          VARCHAR(255),
+      google_sub    VARCHAR(255),
+      password_hash VARCHAR(255) NULL,
+      otp_code      VARCHAR(6),
+      otp_expiry    BIGINT,
+      settings      JSON,
+      created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     )
   `)
+
+  // Defensive migration for older dev DBs that already have a `users` table
+  // without `password_hash`. Swallow the duplicate-column error if it's already there.
+  try {
+    await pool.query('ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL')
+  } catch (err) {
+    if (err && err.code !== 'ER_DUP_FIELDNAME') throw err
+  }
 }
 
 async function listPollTargets() {
@@ -1229,6 +1239,82 @@ app.post('/auth/google', async (req, res) => {
   } catch (err) {
     console.error('[auth/google]', err.message)
     return res.status(400).json({ message: err.message || 'Google token verification failed.' })
+  }
+})
+
+// ── POST /auth/signup ─────────────────────────────────────────────────────────
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+app.post('/auth/signup', async (req, res) => {
+  const { name, email, password } = req.body ?? {}
+  const cleanName  = typeof name === 'string' ? name.trim() : ''
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+
+  if (!cleanName)                    return res.status(400).json({ message: 'Name is required.' })
+  if (!EMAIL_RE.test(cleanEmail))    return res.status(400).json({ message: 'Valid email is required.' })
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ message: 'Password must be at least 8 characters.' })
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT id, password_hash FROM users WHERE email = ? LIMIT 1',
+      [cleanEmail],
+    )
+    const existing = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
+    if (existing && existing.password_hash) {
+      return res.status(409).json({ message: 'Email already registered.' })
+    }
+
+    const hash = await bcrypt.hash(password, 10)
+    if (existing) {
+      // Auto-link: Google-only user adding a password.
+      await pool.query(
+        'UPDATE users SET name = ?, password_hash = ? WHERE email = ?',
+        [cleanName, hash, cleanEmail],
+      )
+    } else {
+      await pool.query(
+        'INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)',
+        [cleanEmail, cleanName, hash],
+      )
+    }
+
+    const token = jwt.sign({ email: cleanEmail, name: cleanName }, JWT_SECRET, { expiresIn: '7d' })
+    return res.json({ token, email: cleanEmail, name: cleanName })
+  } catch (err) {
+    console.error('[auth/signup]', err.message)
+    return res.status(500).json({ message: 'Sign-up failed.' })
+  }
+})
+
+// ── POST /auth/login ──────────────────────────────────────────────────────────
+app.post('/auth/login', async (req, res) => {
+  const { email, password } = req.body ?? {}
+  const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  if (!cleanEmail || typeof password !== 'string' || !password) {
+    return res.status(400).json({ message: 'Email and password are required.' })
+  }
+
+  try {
+    const [rows] = await pool.query(
+      'SELECT name, password_hash FROM users WHERE email = ? LIMIT 1',
+      [cleanEmail],
+    )
+    const user = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
+    if (!user || !user.password_hash) {
+      return res.status(401).json({ message: 'Invalid email or password.' })
+    }
+    const ok = await bcrypt.compare(password, user.password_hash)
+    if (!ok) {
+      return res.status(401).json({ message: 'Invalid email or password.' })
+    }
+
+    const token = jwt.sign({ email: cleanEmail, name: user.name }, JWT_SECRET, { expiresIn: '7d' })
+    return res.json({ token, email: cleanEmail, name: user.name })
+  } catch (err) {
+    console.error('[auth/login]', err.message)
+    return res.status(500).json({ message: 'Login failed.' })
   }
 })
 
