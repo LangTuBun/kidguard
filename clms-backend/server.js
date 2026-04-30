@@ -688,11 +688,8 @@ async function pollArduinoCloudGpsToDb(target) {
 }
 
 function startArduinoCloudPollScheduler() {
-  const clientId = process.env.ARDUINO_CLIENT_ID
-  const clientSecret = process.env.ARDUINO_CLIENT_SECRET
-
   const pollMs = Number(process.env.ARDUINO_POLL_INTERVAL_MS ?? 60_000)
-  if (!clientId || !clientSecret || !Number.isFinite(pollMs) || pollMs <= 0) {
+  if (!Number.isFinite(pollMs) || pollMs <= 0) {
     return
   }
 
