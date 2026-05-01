@@ -303,16 +303,15 @@ async function pickZoneStatusForChild(childId, lat, lng) {
         const minLng = Math.min(zone.corner_a_lng, zone.corner_c_lng)
         const maxLng = Math.max(zone.corner_a_lng, zone.corner_c_lng)
         isInside = lat >= minLat && lat <= maxLat && lng >= minLng && lng <= maxLng
-        distance = 0
       } else {
         isInside = distance <= zone.radius_meters
       }
       if (distance < minDistance) {
         minDistance = distance
-        matchedZone = zone
       }
       if (isInside) {
         insideAny = true
+        matchedZone = zone
       }
     }
     return {
@@ -1055,16 +1054,20 @@ app.post('/api/sync/arduino-cloud', async (req, res) => {
 app.get('/api/location/latest/:childId', async (req, res) => {
   const { childId } = req.params
   const [rows] = await pool.query(
-    `SELECT child_id AS childId, lat, lng, captured_at AS timestamp,
-            geofence_violated AS geofenceViolated,
-            distance_from_center_meters AS distanceFromCenterMeters
+    `SELECT child_id AS childId, lat, lng, captured_at AS timestamp
      FROM child_latest_location WHERE child_id = ? LIMIT 1`,
     [childId],
   )
   if (!Array.isArray(rows) || rows.length === 0) {
     return res.status(404).json({ message: 'No location found for child.' })
   }
-  return res.json(rows[0])
+  
+  const row = rows[0]
+  const zoneStatus = await pickZoneStatusForChild(row.childId, row.lat, row.lng)
+  row.geofenceViolated = zoneStatus.geofenceViolated
+  row.distanceFromCenterMeters = zoneStatus.distanceFromCenterMeters
+  
+  return res.json(row)
 })
 
 app.get('/api/location/latest', async (req, res) => {
@@ -1078,13 +1081,18 @@ app.get('/api/location/latest', async (req, res) => {
   }
   const placeholders = childIds.map(() => '?').join(',')
   const [rows] = await pool.query(
-    `SELECT child_id AS childId, lat, lng, captured_at AS timestamp,
-            geofence_violated AS geofenceViolated,
-            distance_from_center_meters AS distanceFromCenterMeters
+    `SELECT child_id AS childId, lat, lng, captured_at AS timestamp
      FROM child_latest_location
      WHERE child_id IN (${placeholders})`,
     childIds,
   )
+  
+  for (const row of rows) {
+    const zoneStatus = await pickZoneStatusForChild(row.childId, row.lat, row.lng)
+    row.geofenceViolated = zoneStatus.geofenceViolated
+    row.distanceFromCenterMeters = zoneStatus.distanceFromCenterMeters
+  }
+  
   return res.json(rows)
 })
 
@@ -1119,6 +1127,51 @@ app.get('/api/dashboard/:childId', async (req, res) => {
   }
   const online = diffMinutes < 5
 
+  const [historyRows] = await pool.query(
+    `SELECT lat, lng, captured_at AS timestamp, geofence_violated AS geofenceViolated
+     FROM location_history
+     WHERE child_id = ?
+     ORDER BY captured_at ASC
+     LIMIT 200`,
+    [childId]
+  )
+
+  const notifications = []
+  let lastViolated = null
+  for (let i = 0; i < historyRows.length; i++) {
+    const row = historyRows[i]
+    if (lastViolated !== null && lastViolated !== row.geofenceViolated) {
+      if (row.geofenceViolated) {
+        const prevRow = historyRows[i - 1] || row
+        const st = await pickZoneStatusForChild(childId, prevRow.lat, prevRow.lng)
+        const zName = st.matchedZoneName || 'Safe Zone'
+        notifications.push({
+          id: `${childId}-leave-${row.timestamp}`,
+          type: 'geofence',
+          childName: childInfo.name,
+          message: `left ${zName}`,
+          timestamp: new Date(row.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          tsValue: row.timestamp,
+          read: false,
+        })
+      } else {
+        const st = await pickZoneStatusForChild(childId, row.lat, row.lng)
+        const zName = st.matchedZoneName || 'Safe Zone'
+        notifications.push({
+          id: `${childId}-arrive-${row.timestamp}`,
+          type: 'geofence',
+          childName: childInfo.name,
+          message: `arrived at ${zName}`,
+          timestamp: new Date(row.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          tsValue: row.timestamp,
+          read: false,
+        })
+      }
+    }
+    lastViolated = row.geofenceViolated
+  }
+  notifications.reverse()
+
   const response = {
     child: {
       id: childId,
@@ -1133,7 +1186,7 @@ app.get('/api/dashboard/:childId', async (req, res) => {
         updatedAt: lastSeenStr
       }
     },
-    notifications: []
+    notifications
   }
 
   return res.json(response)

@@ -29,7 +29,7 @@ export default function GeofenceStateCard({ zoneName = null, geofenceViolated = 
       {distanceMeters != null && (
         <div style={{ padding: '10px 16px', fontSize: '12px', fontFamily: 'var(--font-body)', color: 'var(--text-muted)', borderTop: '1.5px solid var(--bg-base)', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{Math.round(distanceMeters)} m</span>
-          from {inside ? 'zone center' : 'nearest zone boundary'}
+          from {inside ? 'zone center' : 'nearest zone center'}
         </div>
       )}
       {zoneName === null && !geofenceViolated && (

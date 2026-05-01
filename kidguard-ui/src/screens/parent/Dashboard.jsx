@@ -10,6 +10,7 @@ import GeofenceStateCard from '../../components/GeofenceStateCard'
 import AlertEventPanel from '../../components/AlertEventPanel'
 
 import { mockChild as fallbackMock, mockNotifications } from '../../data/mock'
+import { authHeaders } from '../../utils/auth'
 
 const API_BASE = 'http://localhost:8080'
 const AUTO_REFRESH_MS = 30_000
@@ -106,10 +107,18 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [lastFetch, setLastFetch]   = useState(null)
+  const [toastAlert, setToastAlert] = useState(null)
+  const [settings, setSettings] = useState({ geofenceAlerts: true })
   const timerRef = useRef(null)
+  const prevAlertsRef = useRef([])
 
   // ── Boot: load children list, pick first ───────────────────────────────────
   useEffect(() => {
+    fetch(`${API_BASE}/api/settings`, { headers: authHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setSettings({ geofenceAlerts: data.geofenceAlerts !== false }) })
+      .catch(() => {})
+
     fetchChildren()
       .then((list) => {
         setChildren(list)
@@ -155,6 +164,25 @@ export default function Dashboard() {
   // Only show geofence-type alerts (no SOS — feature doesn't exist yet)
   const alerts  = (data?.notifications?.length ? data.notifications : mockNotifications)
     .filter((a) => a.type !== 'sos')
+
+  useEffect(() => {
+    let timer;
+    if (alerts && alerts.length > 0) {
+      const prevIds = new Set(prevAlertsRef.current.map(a => a.id))
+      const newAlerts = alerts.filter(a => !prevIds.has(a.id))
+
+      if (newAlerts.length > 0 && prevAlertsRef.current.length > 0 && settings.geofenceAlerts) {
+        setToastAlert(newAlerts[0])
+        timer = setTimeout(() => setToastAlert(null), 5000)
+      }
+      prevAlertsRef.current = alerts
+    } else {
+      prevAlertsRef.current = alerts || []
+    }
+    return () => {
+      if (timer) clearTimeout(timer)
+    }
+  }, [alerts, settings.geofenceAlerts])
 
   const geofenceViolated = child.currentZone === 'Outside' || child.currentZone == null
   const safetyStatus = deriveSafetyStatus({ online: child.online, geofenceViolated, hasSOS: false })
@@ -356,7 +384,46 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      {toastAlert && (
+        <div style={{
+          position: 'fixed',
+          bottom: '24px',
+          right: '24px',
+          zIndex: 9999,
+          background: '#FFF8F0',
+          border: '2px solid var(--border)',
+          borderLeft: '5px solid var(--slab-orange)',
+          boxShadow: '4px 4px 0 #0D0D0D',
+          padding: '12px 16px',
+          width: '320px',
+          display: 'flex', flexDirection: 'column', gap: '6px',
+          animation: 'slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <span style={{ background: 'var(--slab-orange)', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 7px', fontFamily: 'var(--font-body)' }}>
+              ⚠ GEOFENCE
+            </span>
+            <button 
+              onClick={() => setToastAlert(null)}
+              style={{ background: 'transparent', border: 'none', cursor: 'pointer', fontSize: '16px', lineHeight: 1, padding: 0, fontWeight: 700, color: 'var(--text-muted)' }}
+            >×</button>
+          </div>
+          <div style={{ fontSize: '14px', fontWeight: 600, fontFamily: 'var(--font-body)', color: 'var(--text-primary)', marginTop: '4px' }}>
+            <strong>{toastAlert.childName}</strong> {toastAlert.message}
+          </div>
+          <div style={{ fontSize: '11px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+            {toastAlert.timestamp}
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes slideUp {
+          from { transform: translateY(100px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
     </WebLayout>
   )
 }
