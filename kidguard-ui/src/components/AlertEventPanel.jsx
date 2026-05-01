@@ -3,6 +3,11 @@ import { MapPin, WifiOff, ArrowRight } from 'lucide-react'
 const PRIORITY = { geofence: 0, offline: 1 }
 
 const ALERT_STYLES = {
+  geofenceActive: {
+    borderLeft: '5px solid var(--slab-red)',
+    background: '#FFF0F0',
+    badge: { bg: 'var(--slab-red)', label: '⛔ ACTIVE' },
+  },
   geofenceLeave: {
     borderLeft: '5px solid var(--slab-orange)',
     background: '#FFF8F0',
@@ -21,8 +26,8 @@ const ALERT_STYLES = {
 }
 
 function AlertItem({ alert }) {
-  const styleKey = alert.type === 'geofence' 
-    ? (alert.isArrival ? 'geofenceArrive' : 'geofenceLeave') 
+  const styleKey = alert.type === 'geofence'
+    ? (alert.isActive ? 'geofenceActive' : (alert.isArrival ? 'geofenceArrive' : 'geofenceLeave'))
     : alert.type
   const style = ALERT_STYLES[styleKey] || ALERT_STYLES.offline
   return (

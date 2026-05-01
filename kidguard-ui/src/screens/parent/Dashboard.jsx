@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Bell, RefreshCw, MapPin, ChevronDown } from 'lucide-react'
 
@@ -9,7 +9,6 @@ import SafetyStatusBar, { deriveSafetyStatus } from '../../components/SafetyStat
 import GeofenceStateCard from '../../components/GeofenceStateCard'
 import AlertEventPanel from '../../components/AlertEventPanel'
 
-import { mockChild as fallbackMock, mockNotifications } from '../../data/mock'
 import { authHeaders } from '../../utils/auth'
 
 const API_BASE = 'http://localhost:8080'
@@ -23,16 +22,14 @@ async function fetchChildren() {
   return Array.isArray(rows) ? rows.filter((c) => c.active) : []
 }
 
-// Fetch per-child data (dashboard + history + zones) in parallel
+// Fetch per-child data (dashboard + zones) in parallel
 async function fetchChildData(childId) {
-  const [dashRes, histRes, zonesRes] = await Promise.allSettled([
+  const [dashRes, zonesRes] = await Promise.allSettled([
     fetch(`${API_BASE}/api/dashboard/${childId}`).then((r) => r.ok ? r.json() : null),
-    fetch(`${API_BASE}/api/location/history/${childId}`).then((r) => r.ok ? r.json() : []),
     fetch(`${API_BASE}/api/safezones/${childId}`).then((r) => r.ok ? r.json() : []),
   ])
   return {
     dashboard: dashRes.status === 'fulfilled' ? dashRes.value : null,
-    history:   histRes.status === 'fulfilled'  ? (histRes.value ?? []) : [],
     zones:     zonesRes.status === 'fulfilled' ? (zonesRes.value ?? []) : [],
   }
 }
@@ -102,9 +99,9 @@ export default function Dashboard() {
 
   // ── Selected child data ─────────────────────────────────────────────────────
   const [data, setData]       = useState(null)
-  const [history, setHistory] = useState([])
   const [zones, setZones]     = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState('')
   const [refreshing, setRefreshing] = useState(false)
   const [lastFetch, setLastFetch]   = useState(null)
   const [toastAlert, setToastAlert] = useState(null)
@@ -134,12 +131,18 @@ export default function Dashboard() {
     if (isManual) setRefreshing(true)
     try {
       const result = await fetchChildData(selectedId)
-      setData(result.dashboard ?? { child: fallbackMock, notifications: mockNotifications })
-      setHistory(Array.isArray(result.history) ? result.history : [])
+      if (result.dashboard) {
+        setData(result.dashboard)
+        setError('')
+      } else {
+        setData(null)
+        setError('Cannot load this child right now. The backend may be unreachable or the child has no GPS data yet.')
+      }
       setZones(Array.isArray(result.zones) ? result.zones.filter((z) => z.active) : [])
       setLastFetch(Date.now())
-    } catch {
-      setData({ child: fallbackMock, notifications: mockNotifications })
+    } catch (e) {
+      setData(null)
+      setError(e?.message || 'Cannot load this child right now.')
     } finally {
       setLoading(false)
       setRefreshing(false)
@@ -151,7 +154,6 @@ export default function Dashboard() {
     if (!selectedId) return
     setLoading(true)
     setData(null)
-    setHistory([])
     setZones([])
     load()
     clearInterval(timerRef.current)
@@ -160,8 +162,26 @@ export default function Dashboard() {
   }, [load, selectedId])
 
   // ── Derived values ──────────────────────────────────────────────────────────
-  const child   = data?.child ?? fallbackMock
-  const alerts  = (data?.notifications?.length ? data.notifications : mockNotifications)
+  const child   = data?.child ?? null
+  const alerts  = useMemo(() => {
+    const events = Array.isArray(data?.notifications) ? data.notifications : []
+    const zoneStates = Array.isArray(data?.child?.zoneStates) ? data.child.zoneStates : []
+    const childName = data?.child?.name ?? 'This child'
+    const childKey = data?.child?.id ?? 'unknown'
+    const active = zoneStates
+      .filter((z) => !z.inside)
+      .map((z) => ({
+        id: `active-${childKey}-${z.zoneId}`,
+        type: 'geofence',
+        isActive: true,
+        isArrival: false,
+        childName,
+        message: `is currently outside ${z.zoneName}`,
+        timestamp: 'Active now',
+        read: false,
+      }))
+    return [...active, ...events]
+  }, [data])
 
   useEffect(() => {
     let timer;
@@ -181,21 +201,6 @@ export default function Dashboard() {
       if (timer) clearTimeout(timer)
     }
   }, [alerts, settings.geofenceAlerts])
-
-  const geofenceViolated = child.currentZone === 'Outside' || child.currentZone == null
-  const safetyStatus = deriveSafetyStatus({ online: child.online, geofenceViolated })
-
-  const mapLocations = (child.location?.lat && child.location?.lng) ? [{
-    childId:     selectedId ?? 'unknown',
-    displayName: child.name,
-    lat:         child.location.lat,
-    lng:         child.location.lng,
-    timestamp:   lastFetch ?? Date.now(),
-  }] : []
-
-  const zonesByChild = zones.length ? { [selectedId]: zones } : {}
-  const lastUpdateLabel = child.lastSeen ?? '—'
-  const unreadCount = alerts.filter((a) => !a.read).length
 
   // ── Handlers ────────────────────────────────────────────────────────────────
   const handleRefresh   = () => load(true)
@@ -218,7 +223,7 @@ export default function Dashboard() {
   }
 
   // ── No children registered ──────────────────────────────────────────────────
-  if (!loading && children.length === 0) {
+  if (children.length === 0) {
     return (
       <WebLayout active="map">
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: 'var(--font-body)', color: 'var(--text-muted)' }}>
@@ -230,6 +235,45 @@ export default function Dashboard() {
       </WebLayout>
     )
   }
+
+  // ── No data for the selected child (backend down, no GPS yet, etc.) ─────────
+  if (!child) {
+    return (
+      <WebLayout active="map">
+        {children.length > 1 && (
+          <ChildTabs children={children} selectedId={selectedId} onSelect={handleSelectChild} />
+        )}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '14px', padding: '24px', fontFamily: 'var(--font-body)', color: 'var(--text-muted)', textAlign: 'center' }}>
+          <div style={{ fontWeight: 700, fontSize: '15px', color: 'var(--slab-red)' }}>Cannot load child data</div>
+          <div style={{ fontSize: '13px', maxWidth: '420px', lineHeight: 1.5 }}>
+            {error || 'The backend returned no data for this child. They may not have any GPS history yet, or the server is unreachable.'}
+          </div>
+          <button onClick={handleRefresh} disabled={refreshing} style={{ background: 'var(--slab-blue)', color: '#fff', border: '2px solid var(--border)', padding: '8px 20px', fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', cursor: refreshing ? 'wait' : 'pointer', fontFamily: 'var(--font-body)', boxShadow: '3px 3px 0 #0D0D0D' }}>
+            {refreshing ? 'REFRESHING…' : 'TRY AGAIN'}
+          </button>
+        </div>
+      </WebLayout>
+    )
+  }
+
+  // ── Derived values (safe — child is guaranteed non-null below this line) ──
+  const childZoneStates = Array.isArray(child.zoneStates) ? child.zoneStates : []
+  const hasActiveZones = childZoneStates.length > 0
+  const geofenceViolated = hasActiveZones && childZoneStates.every((z) => !z.inside)
+  const safetyStatus = deriveSafetyStatus({ online: child.online, geofenceViolated })
+
+  const mapLocations = (child.location?.lat && child.location?.lng) ? [{
+    childId:     selectedId ?? 'unknown',
+    displayName: child.name,
+    lat:         child.location.lat,
+    lng:         child.location.lng,
+    timestamp:   lastFetch ?? Date.now(),
+  }] : []
+
+  const zonesByChild = zones.length ? { [selectedId]: zones } : {}
+  const lastUpdateLabel = child.lastSeen ?? '—'
+  const unreadCount = alerts.filter((a) => !a.read).length
+  const outsideZoneNames = childZoneStates.filter((z) => !z.inside).map((z) => z.zoneName)
 
   // ── Render ──────────────────────────────────────────────────────────────────
   return (
@@ -305,9 +349,10 @@ export default function Dashboard() {
 
           {/* Geofence State */}
           <GeofenceStateCard
-            zoneName={child.currentZone !== 'Outside' ? child.currentZone : null}
+            zoneName={hasActiveZones && child.currentZone !== 'Outside' ? child.currentZone : null}
             geofenceViolated={geofenceViolated}
-            distanceMeters={history[0]?.distanceFromCenterMeters ?? null}
+            distanceMeters={hasActiveZones ? (child.distanceFromCenterMeters ?? null) : null}
+            outsideZoneNames={outsideZoneNames}
             onEditZones={handleEditZones}
           />
 

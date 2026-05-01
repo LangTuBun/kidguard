@@ -154,38 +154,50 @@ export default function LiveMap() {
               {newest ? `${newest.lat.toFixed(6)}, ${newest.lng.toFixed(6)}` : '--'}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
-              {locations.length > 0 ? locations.map(loc => (
-                <div 
-                  key={loc.childId} 
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between',
-                    padding: '12px 16px',
-                    backgroundColor: '#fff',
-                    border: '2px solid #000',
-                    boxShadow: '4px 4px 0px #000',
-                    transition: 'all 0.15s ease',
-                    cursor: 'default'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.transform = 'translate(2px, 2px)';
-                    e.currentTarget.style.boxShadow = '2px 2px 0px #000';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.transform = 'translate(0px, 0px)';
-                    e.currentTarget.style.boxShadow = '4px 4px 0px #000';
-                  }}
-                >
-                  <span style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'var(--font-body)', textTransform: 'uppercase' }}>
-                    {loc.displayName || loc.childId}
-                  </span>
-                  <StatusChip
-                    label={loc.geofenceViolated ? 'OUTSIDE ZONE' : 'INSIDE ZONE'}
-                    variant={loc.geofenceViolated ? 'outside' : 'inside'}
-                  />
-                </div>
-              )) : (
+              {locations.length > 0 ? locations.map(loc => {
+                const sortedZones = Array.isArray(loc.zoneStates)
+                  ? [...loc.zoneStates].sort((a, b) => String(a.zoneName).localeCompare(String(b.zoneName)))
+                  : []
+                return (
+                  <div
+                    key={loc.childId}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                      padding: '12px 16px',
+                      backgroundColor: '#fff',
+                      border: '2px solid #000',
+                      boxShadow: '4px 4px 0px #000',
+                      transition: 'all 0.15s ease',
+                      cursor: 'default'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.transform = 'translate(2px, 2px)';
+                      e.currentTarget.style.boxShadow = '2px 2px 0px #000';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = 'translate(0px, 0px)';
+                      e.currentTarget.style.boxShadow = '4px 4px 0px #000';
+                    }}
+                  >
+                    <span style={{ fontSize: '14px', fontWeight: 700, fontFamily: 'var(--font-body)', textTransform: 'uppercase' }}>
+                      {loc.displayName || loc.childId}
+                    </span>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {sortedZones.length === 0 ? (
+                        <StatusChip label="NO ZONES" variant="offline" />
+                      ) : sortedZones.map((z) => (
+                        <StatusChip
+                          key={z.zoneId}
+                          label={z.zoneName}
+                          variant={z.inside ? 'inside' : 'outside'}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )
+              }) : (
                 <StatusChip label="WAITING FOR DATA" variant="warning" />
               )}
             </div>

@@ -104,6 +104,39 @@ CREATE TABLE `safe_zone_children` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
+-- clms.child_zone_state definition (current inside/outside status per (child, zone))
+
+CREATE TABLE `child_zone_state` (
+  `child_id` varchar(128) NOT NULL,
+  `zone_id` bigint NOT NULL,
+  `inside` tinyint(1) NOT NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`child_id`,`zone_id`),
+  KEY `idx_czs_zone` (`zone_id`),
+  CONSTRAINT `fk_czs_child` FOREIGN KEY (`child_id`) REFERENCES `children` (`child_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_czs_zone` FOREIGN KEY (`zone_id`) REFERENCES `safe_zones` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
+-- clms.zone_events definition (append-only log of zone enter/leave transitions)
+
+CREATE TABLE `zone_events` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `child_id` varchar(128) NOT NULL,
+  `zone_id` bigint NOT NULL,
+  `kind` enum('enter','leave') NOT NULL,
+  `occurred_at` bigint NOT NULL,
+  `lat` double DEFAULT NULL,
+  `lng` double DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ze_child_time` (`child_id`,`occurred_at` DESC),
+  KEY `idx_ze_zone` (`zone_id`),
+  CONSTRAINT `fk_ze_child` FOREIGN KEY (`child_id`) REFERENCES `children` (`child_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_ze_zone` FOREIGN KEY (`zone_id`) REFERENCES `safe_zones` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+
 
 
 

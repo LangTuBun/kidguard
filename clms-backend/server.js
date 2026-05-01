@@ -193,6 +193,37 @@ async function ensureSchema() {
   // Allow new zones to be inserted without writing the legacy column.
   await pool.query(`ALTER TABLE safe_zones MODIFY COLUMN child_id VARCHAR(128) NULL`)
 
+  // Per-(child, zone) current state for O(1) transition detection.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS child_zone_state (
+      child_id   VARCHAR(128) NOT NULL,
+      zone_id    BIGINT       NOT NULL,
+      inside     BOOLEAN      NOT NULL,
+      updated_at TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (child_id, zone_id),
+      INDEX idx_czs_zone (zone_id),
+      CONSTRAINT fk_czs_child FOREIGN KEY (child_id) REFERENCES children(child_id) ON DELETE CASCADE,
+      CONSTRAINT fk_czs_zone  FOREIGN KEY (zone_id)  REFERENCES safe_zones(id)    ON DELETE CASCADE
+    )
+  `)
+  // Append-only event log for zone enter/leave transitions.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS zone_events (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      child_id    VARCHAR(128) NOT NULL,
+      zone_id     BIGINT       NOT NULL,
+      kind        ENUM('enter','leave') NOT NULL,
+      occurred_at BIGINT       NOT NULL,
+      lat         DOUBLE       NULL,
+      lng         DOUBLE       NULL,
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_ze_child_time (child_id, occurred_at DESC),
+      INDEX idx_ze_zone (zone_id),
+      CONSTRAINT fk_ze_child FOREIGN KEY (child_id) REFERENCES children(child_id) ON DELETE CASCADE,
+      CONSTRAINT fk_ze_zone  FOREIGN KEY (zone_id)  REFERENCES safe_zones(id)    ON DELETE CASCADE
+    )
+  `)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS geofence (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -316,9 +347,10 @@ async function pickZoneStatusForChild(childId, lat, lng) {
     let insideAny = false
     let minDistance = Number.POSITIVE_INFINITY
     let matchedZone = null
+    const zoneStates = []
     for (const zone of rows) {
       const shapeType = zone.shape_type === 'rectangle' ? 'rectangle' : 'circle'
-      let distance = haversineMeters(lat, lng, zone.center_lat, zone.center_lng)
+      const distance = haversineMeters(lat, lng, zone.center_lat, zone.center_lng)
       let isInside = false
       if (shapeType === 'rectangle'
         && Number.isFinite(zone.corner_a_lat)
@@ -338,10 +370,17 @@ async function pickZoneStatusForChild(childId, lat, lng) {
       }
       if (isInside) {
         insideAny = true
-        matchedZone = zone
+        if (!matchedZone) matchedZone = zone
       }
+      zoneStates.push({
+        zoneId: zone.id,
+        zoneName: zone.zone_name,
+        inside: isInside,
+        distanceMeters: distance,
+      })
     }
     return {
+      zoneStates,
       geofenceViolated: !insideAny,
       distanceFromCenterMeters: Number.isFinite(minDistance) ? minDistance : null,
       matchedZoneName: matchedZone?.zone_name ?? null,
@@ -354,11 +393,12 @@ async function pickZoneStatusForChild(childId, lat, lng) {
     [childId],
   )
   if (!Array.isArray(legacyRows) || legacyRows.length === 0) {
-    return { geofenceViolated: false, distanceFromCenterMeters: null, matchedZoneName: null }
+    return { zoneStates: [], geofenceViolated: false, distanceFromCenterMeters: null, matchedZoneName: null }
   }
   const geofence = legacyRows[0]
   const distanceFromCenterMeters = haversineMeters(lat, lng, geofence.center_lat, geofence.center_lng)
   return {
+    zoneStates: [],
     geofenceViolated: distanceFromCenterMeters > geofence.radius_meters,
     distanceFromCenterMeters,
     matchedZoneName: null,
@@ -885,6 +925,45 @@ function startArduinoCloudPollScheduler() {
   console.log(`Arduino Cloud GPS poll every ${label} (targets from children table or env fallback)`)
 }
 
+async function recordZoneTransitions({ childId, zoneStates, lat, lng, occurredAt }) {
+  if (!Array.isArray(zoneStates) || zoneStates.length === 0) return
+  const [priorRows] = await pool.query(
+    'SELECT zone_id AS zoneId, inside FROM child_zone_state WHERE child_id = ?',
+    [childId],
+  )
+  const prior = new Map(priorRows.map((r) => [Number(r.zoneId), Boolean(r.inside)]))
+
+  const eventValues = []
+  const stateValues = []
+  for (const z of zoneStates) {
+    const zoneIdNum = Number(z.zoneId)
+    const currentInside = Boolean(z.inside)
+    const hadPrior = prior.has(zoneIdNum)
+    const priorInside = hadPrior ? prior.get(zoneIdNum) : false
+    if (hadPrior && priorInside !== currentInside) {
+      eventValues.push([childId, zoneIdNum, currentInside ? 'enter' : 'leave', occurredAt, lat, lng])
+    } else if (!hadPrior && currentInside) {
+      // First-ever observation and the child is already inside — log as enter.
+      eventValues.push([childId, zoneIdNum, 'enter', occurredAt, lat, lng])
+    }
+    stateValues.push([childId, zoneIdNum, currentInside])
+  }
+
+  if (eventValues.length > 0) {
+    await pool.query(
+      'INSERT INTO zone_events (child_id, zone_id, kind, occurred_at, lat, lng) VALUES ?',
+      [eventValues],
+    )
+  }
+  if (stateValues.length > 0) {
+    await pool.query(
+      `INSERT INTO child_zone_state (child_id, zone_id, inside) VALUES ?
+       ON DUPLICATE KEY UPDATE inside = VALUES(inside)`,
+      [stateValues],
+    )
+  }
+}
+
 async function upsertGpsLocation({ childId, lat, lng, timestamp, battery }) {
   await pool.query(
     `INSERT INTO children (child_id, display_name, thing_id, active)
@@ -899,6 +978,14 @@ async function upsertGpsLocation({ childId, lat, lng, timestamp, battery }) {
   const distanceFromCenterMeters = zoneStatus.distanceFromCenterMeters
 
   const capturedAt = Math.trunc(timestamp)
+
+  await recordZoneTransitions({
+    childId,
+    zoneStates: zoneStatus.zoneStates,
+    lat,
+    lng,
+    occurredAt: capturedAt,
+  })
 
   await pool.query(
     `INSERT INTO child_latest_location (child_id, lat, lng, captured_at, geofence_violated, distance_from_center_meters, battery)
@@ -1225,7 +1312,8 @@ app.get('/api/location/latest/:childId', async (req, res) => {
   const zoneStatus = await pickZoneStatusForChild(row.childId, row.lat, row.lng)
   row.geofenceViolated = zoneStatus.geofenceViolated
   row.distanceFromCenterMeters = zoneStatus.distanceFromCenterMeters
-  
+  row.zoneStates = zoneStatus.zoneStates
+
   return res.json(row)
 })
 
@@ -1250,8 +1338,34 @@ app.get('/api/location/latest', async (req, res) => {
     const zoneStatus = await pickZoneStatusForChild(row.childId, row.lat, row.lng)
     row.geofenceViolated = zoneStatus.geofenceViolated
     row.distanceFromCenterMeters = zoneStatus.distanceFromCenterMeters
+    row.zoneStates = zoneStatus.zoneStates
   }
-  
+
+  return res.json(rows)
+})
+
+app.get('/api/zone-events', async (req, res) => {
+  const idsRaw = typeof req.query.childIds === 'string' ? req.query.childIds : ''
+  const childIds = idsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 50))
+
+  let sql = `
+    SELECT e.id, e.child_id AS childId, c.display_name AS childDisplayName,
+           e.zone_id AS zoneId, z.zone_name AS zoneName,
+           e.kind, e.occurred_at AS occurredAt, e.lat, e.lng
+    FROM zone_events e
+    INNER JOIN children c   ON c.child_id = e.child_id
+    INNER JOIN safe_zones z ON z.id       = e.zone_id
+  `
+  const params = []
+  if (childIds.length > 0) {
+    sql += ` WHERE e.child_id IN (?)`
+    params.push(childIds)
+  }
+  sql += ` ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?`
+  params.push(limit)
+
+  const [rows] = await pool.query(sql, params)
   return res.json(rows)
 })
 
@@ -1286,51 +1400,26 @@ app.get('/api/dashboard/:childId', async (req, res) => {
   }
   const online = diffMinutes < 5
 
-  const [historyRows] = await pool.query(
-    `SELECT lat, lng, captured_at AS timestamp, geofence_violated AS geofenceViolated
-     FROM location_history
-     WHERE child_id = ?
-     ORDER BY captured_at ASC
-     LIMIT 200`,
-    [childId]
+  const [eventRows] = await pool.query(
+    `SELECT e.id, e.kind, e.occurred_at AS occurredAt, z.zone_name AS zoneName
+     FROM zone_events e
+     INNER JOIN safe_zones z ON z.id = e.zone_id
+     WHERE e.child_id = ?
+     ORDER BY e.occurred_at DESC, e.id DESC
+     LIMIT 10`,
+    [childId],
   )
 
-  const notifications = []
-  let lastViolated = null
-  for (let i = 0; i < historyRows.length; i++) {
-    const row = historyRows[i]
-    if (lastViolated !== null && lastViolated !== row.geofenceViolated) {
-      if (row.geofenceViolated) {
-        const prevRow = historyRows[i - 1] || row
-        const st = await pickZoneStatusForChild(childId, prevRow.lat, prevRow.lng)
-        const zName = st.matchedZoneName || 'Safe Zone'
-        notifications.push({
-          id: `${childId}-leave-${row.timestamp}`,
-          type: 'geofence',
-          childName: childInfo.name,
-          message: `left ${zName}`,
-          timestamp: new Date(row.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-          tsValue: row.timestamp,
-          read: false,
-        })
-      } else {
-        const st = await pickZoneStatusForChild(childId, row.lat, row.lng)
-        const zName = st.matchedZoneName || 'Safe Zone'
-        notifications.push({
-          id: `${childId}-arrive-${row.timestamp}`,
-          type: 'geofence',
-          isArrival: true,
-          childName: childInfo.name,
-          message: `arrived at ${zName}`,
-          timestamp: new Date(row.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-          tsValue: row.timestamp,
-          read: false,
-        })
-      }
-    }
-    lastViolated = row.geofenceViolated
-  }
-  notifications.reverse()
+  const notifications = eventRows.map((row) => ({
+    id: `${childId}-${row.kind}-${row.id}`,
+    type: 'geofence',
+    isArrival: row.kind === 'enter',
+    childName: childInfo.name,
+    message: row.kind === 'enter' ? `arrived at ${row.zoneName}` : `left ${row.zoneName}`,
+    timestamp: new Date(Number(row.occurredAt)).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+    tsValue: Number(row.occurredAt),
+    read: false,
+  }))
 
   const response = {
     child: {
@@ -1339,6 +1428,8 @@ app.get('/api/dashboard/:childId', async (req, res) => {
       lastSeen: lastSeenStr,
       online: online,
       currentZone: zoneStatus.matchedZoneName || 'Outside',
+      zoneStates: zoneStatus.zoneStates,
+      distanceFromCenterMeters: zoneStatus.distanceFromCenterMeters,
       location: {
         lat: latest.lat,
         lng: latest.lng,

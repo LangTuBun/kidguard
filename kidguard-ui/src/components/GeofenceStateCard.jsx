@@ -1,10 +1,22 @@
 import { Shield, ShieldAlert, Edit3 } from 'lucide-react'
 
-export default function GeofenceStateCard({ zoneName = null, geofenceViolated = false, distanceMeters = null, onEditZones }) {
+export default function GeofenceStateCard({ zoneName = null, geofenceViolated = false, distanceMeters = null, outsideZoneNames = [], onEditZones }) {
   const inside = !geofenceViolated && zoneName
-  const label = inside ? `Inside ${zoneName} Zone` : 'Outside All Zones'
-  const slabBg = inside ? 'var(--slab-green)' : 'var(--slab-red)'
-  const Icon = inside ? Shield : ShieldAlert
+  const noZones = !zoneName && !geofenceViolated
+  const label = inside ? `Inside ${zoneName} Zone`
+              : noZones ? 'No active safe zones'
+              : 'Outside All Zones'
+  const slabBg = inside ? 'var(--slab-green)'
+               : noZones ? 'var(--bg-dark)'
+               : 'var(--slab-red)'
+  const Icon = noZones ? Shield : (inside ? Shield : ShieldAlert)
+  const headerSymbol = inside ? '✓' : noZones ? 'ℹ' : '⚠'
+  const otherOutside = inside && Array.isArray(outsideZoneNames)
+    ? outsideZoneNames.filter((n) => n && n !== zoneName)
+    : []
+  const outsideLabel = otherOutside.length > 3
+    ? `${otherOutside.slice(0, 3).join(', ')} +${otherOutside.length - 3} more`
+    : otherOutside.join(', ')
 
   return (
     <div style={{ background: '#fff', border: '3px solid var(--border)', boxShadow: '4px 4px 0 #0D0D0D', overflow: 'hidden' }}>
@@ -16,7 +28,7 @@ export default function GeofenceStateCard({ zoneName = null, geofenceViolated = 
               GEOFENCE STATUS
             </div>
             <div style={{ color: '#fff', fontSize: '15px', fontWeight: 700, fontFamily: 'var(--font-display)' }}>
-              {inside ? '✓' : '⚠'} {label}
+              {headerSymbol} {label}
             </div>
           </div>
         </div>
@@ -30,6 +42,11 @@ export default function GeofenceStateCard({ zoneName = null, geofenceViolated = 
         <div style={{ padding: '10px 16px', fontSize: '12px', fontFamily: 'var(--font-body)', color: 'var(--text-muted)', borderTop: '1.5px solid var(--bg-base)', display: 'flex', alignItems: 'center', gap: '6px' }}>
           <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)' }}>{Math.round(distanceMeters)} m</span>
           from {inside ? 'zone center' : 'nearest zone center'}
+        </div>
+      )}
+      {otherOutside.length > 0 && (
+        <div style={{ padding: '8px 16px', fontSize: '11px', fontFamily: 'var(--font-body)', color: 'var(--slab-orange)', borderTop: '1.5px solid var(--bg-base)', fontWeight: 600 }}>
+          + outside {outsideLabel}
         </div>
       )}
       {zoneName === null && !geofenceViolated && (

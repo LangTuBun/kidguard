@@ -1,9 +1,12 @@
 export default function NotificationCard({ notification }) {
+  const accent = notification.type === 'geofence'
+    ? (notification.isArrival ? 'var(--slab-green, #1A8C4E)' : 'var(--slab-orange, #E8631A)')
+    : 'var(--slab-blue)'
   return (
     <div style={{
       background: '#fff',
       border: '2px solid var(--border)',
-      borderLeft: '4px solid var(--slab-blue)',
+      borderLeft: `4px solid ${accent}`,
       boxShadow: '3px 3px 0 #0D0D0D',
       padding: '14px 16px',
       display: 'flex', flexDirection: 'column', gap: '6px',

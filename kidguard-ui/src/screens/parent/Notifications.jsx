@@ -23,32 +23,59 @@ export default function Notifications() {
         return
       }
       const idsParam = encodeURIComponent(children.map((c) => c.childId).join(','))
-      const res = await fetch(`${apiBase}/api/location/latest?childIds=${idsParam}`)
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
+      const [latestRes, eventsRes] = await Promise.all([
+        fetch(`${apiBase}/api/location/latest?childIds=${idsParam}`),
+        fetch(`${apiBase}/api/zone-events?childIds=${idsParam}&limit=100`),
+      ])
+      if (!eventsRes.ok) {
+        const data = await eventsRes.json().catch(() => ({}))
         throw new Error(data.message || 'Cannot load alerts.')
       }
-      const rows = await res.json()
+      const eventRows = await eventsRes.json()
+      const latestRows = latestRes.ok ? await latestRes.json().catch(() => []) : []
       const now = Date.now()
       const byId = new Map(children.map((c) => [c.childId, c]))
-      const dynamicAlerts = (Array.isArray(rows) ? rows : [])
-        .filter((row) => row.geofenceViolated === true || row.geofenceViolated === 1)
-        .sort((a, b) => Number(b.timestamp) - Number(a.timestamp))
-        .map((row, i) => {
-          const child = byId.get(row.childId)
-          const ts = Number(row.timestamp)
-          const ageMin = Number.isFinite(ts) ? Math.max(0, Math.floor((now - ts) / 60000)) : null
-          return {
-            id: `outside-${row.childId}-${ts || i}`,
+
+      const activeAlerts = []
+      for (const row of (Array.isArray(latestRows) ? latestRows : [])) {
+        const child = byId.get(row.childId)
+        const childName = child?.displayName || row.childId
+        const zoneStates = Array.isArray(row.zoneStates) ? row.zoneStates : []
+        for (const z of zoneStates) {
+          if (z.inside) continue
+          activeAlerts.push({
+            id: `active-${row.childId}-${z.zoneId}`,
             type: 'geofence',
-            childName: child?.displayName || row.childId,
-            message: 'is outside the safe zone',
-            timestamp: Number.isFinite(ts) ? new Date(ts).toLocaleString() : 'Unknown time',
-            ageMin,
+            isActive: true,
+            isArrival: false,
+            childName,
+            message: `is currently outside ${z.zoneName}`,
+            timestamp: 'Active now',
+            ageMin: null,
             read: false,
-          }
-        })
-      setAlerts(dynamicAlerts)
+          })
+        }
+      }
+
+      const events = (Array.isArray(eventRows) ? eventRows : []).map((row) => {
+        const child = byId.get(row.childId)
+        const ts = Number(row.occurredAt)
+        const isArrival = row.kind === 'enter'
+        const ageMin = Number.isFinite(ts) ? Math.max(0, Math.floor((now - ts) / 60000)) : null
+        return {
+          id: `${row.kind}-${row.id}`,
+          type: 'geofence',
+          isActive: false,
+          isArrival,
+          childName: child?.displayName || row.childDisplayName || row.childId,
+          message: isArrival ? `arrived at ${row.zoneName}` : `left ${row.zoneName}`,
+          timestamp: Number.isFinite(ts) ? new Date(ts).toLocaleString() : 'Unknown time',
+          ageMin,
+          read: false,
+        }
+      })
+
+      setAlerts([...activeAlerts, ...events])
     } catch (e) {
       setError(e.message || 'Cannot load alerts.')
       setAlerts([])
@@ -124,7 +151,7 @@ export default function Notifications() {
           {filtered.map(n => <NotificationCard key={n.id} notification={n} />)}
           {!loading && filtered.length === 0 && (
             <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
-              No alerts right now. Children are inside configured zones.
+              No zone transitions recorded yet.
             </div>
           )}
         </div>
