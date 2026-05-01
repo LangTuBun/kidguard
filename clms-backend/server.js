@@ -26,7 +26,6 @@ const dbConfig = {
 }
 
 const pool = mysql.createPool(dbConfig)
-const GLOBAL_SAFEZONE_CHILD_ID = '__ALL__'
 
 app.use(cors())
 app.use(express.json())
@@ -170,6 +169,30 @@ async function ensureSchema() {
 
   await ensureColumn('children', 'arduino_client_id', 'arduino_client_id VARCHAR(128) NULL')
   await ensureColumn('children', 'arduino_client_secret', 'arduino_client_secret VARCHAR(256) NULL')
+
+  // Many-to-many: a zone can apply to several children.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS safe_zone_children (
+      zone_id BIGINT NOT NULL,
+      child_id VARCHAR(128) NOT NULL,
+      PRIMARY KEY (zone_id, child_id),
+      INDEX idx_szc_child (child_id),
+      CONSTRAINT fk_szc_zone FOREIGN KEY (zone_id) REFERENCES safe_zones(id) ON DELETE CASCADE,
+      CONSTRAINT fk_szc_child FOREIGN KEY (child_id) REFERENCES children(child_id) ON DELETE CASCADE
+    )
+  `)
+  // Backfill from the legacy single-child column for any zone not yet linked.
+  await pool.query(`
+    INSERT IGNORE INTO safe_zone_children (zone_id, child_id)
+    SELECT z.id, z.child_id
+    FROM safe_zones z
+    INNER JOIN children c ON c.child_id = z.child_id
+    LEFT JOIN safe_zone_children szc ON szc.zone_id = z.id
+    WHERE szc.zone_id IS NULL
+  `)
+  // Allow new zones to be inserted without writing the legacy column.
+  await pool.query(`ALTER TABLE safe_zones MODIFY COLUMN child_id VARCHAR(128) NULL`)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS geofence (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -281,11 +304,12 @@ async function listPollTargets() {
 
 async function pickZoneStatusForChild(childId, lat, lng) {
   const [rows] = await pool.query(
-    `SELECT id, zone_name, shape_type, center_lat, center_lng, radius_meters,
-            corner_a_lat, corner_a_lng, corner_c_lat, corner_c_lng
-     FROM safe_zones
-     WHERE child_id IN (?, ?) AND active = TRUE`,
-    [childId, GLOBAL_SAFEZONE_CHILD_ID],
+    `SELECT z.id, z.zone_name, z.shape_type, z.center_lat, z.center_lng, z.radius_meters,
+            z.corner_a_lat, z.corner_a_lng, z.corner_c_lat, z.corner_c_lng
+     FROM safe_zones z
+     INNER JOIN safe_zone_children szc ON szc.zone_id = z.id
+     WHERE szc.child_id = ? AND z.active = TRUE`,
+    [childId],
   )
 
   if (Array.isArray(rows) && rows.length > 0) {
@@ -423,40 +447,91 @@ app.patch('/api/children/:childId', async (req, res) => {
   return res.json({ ok: true, childId })
 })
 
-app.get('/api/safezones/:childId', async (req, res) => {
-  const { childId } = req.params
-  const [rows] = await pool.query(
-    `SELECT id, child_id AS childId, zone_name AS zoneName, shape_type AS shapeType,
+async function normalizeChildIds(rawChildIds) {
+  if (!Array.isArray(rawChildIds)) {
+    return { error: 'childIds must be an array of strings.' }
+  }
+  const trimmed = [...new Set(
+    rawChildIds
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter(Boolean),
+  )]
+  if (trimmed.length === 0) {
+    return { error: 'At least one childId is required.' }
+  }
+  const [knownRows] = await pool.query(
+    'SELECT child_id AS childId FROM children WHERE child_id IN (?)',
+    [trimmed],
+  )
+  const knownSet = new Set(knownRows.map((r) => r.childId))
+  const unknown = trimmed.filter((id) => !knownSet.has(id))
+  if (unknown.length > 0) {
+    return { error: `Unknown childId(s): ${unknown.join(', ')}` }
+  }
+  return { childIds: trimmed }
+}
+
+async function replaceZoneChildren(zoneId, childIds) {
+  await pool.query('DELETE FROM safe_zone_children WHERE zone_id = ?', [zoneId])
+  if (childIds.length === 0) return
+  const values = childIds.map((cid) => [zoneId, cid])
+  await pool.query('INSERT INTO safe_zone_children (zone_id, child_id) VALUES ?', [values])
+}
+
+async function loadZonesByIds(zoneIds) {
+  if (!Array.isArray(zoneIds) || zoneIds.length === 0) return []
+  const [zoneRows] = await pool.query(
+    `SELECT id, zone_name AS zoneName, shape_type AS shapeType,
             center_lat AS centerLat, center_lng AS centerLng, radius_meters AS radiusMeters,
             corner_a_lat AS cornerALat, corner_a_lng AS cornerALng,
             corner_c_lat AS cornerCLat, corner_c_lng AS cornerCLng,
             active, created_at AS createdAt
      FROM safe_zones
-     WHERE child_id IN (?, ?)
+     WHERE id IN (?)
      ORDER BY created_at DESC`,
-    [childId, GLOBAL_SAFEZONE_CHILD_ID],
+    [zoneIds],
   )
-  return res.json(rows)
+  const [memberRows] = await pool.query(
+    `SELECT szc.zone_id AS zoneId, szc.child_id AS childId, c.display_name AS displayName
+     FROM safe_zone_children szc
+     INNER JOIN children c ON c.child_id = szc.child_id
+     WHERE szc.zone_id IN (?)`,
+    [zoneIds],
+  )
+  const membersByZone = new Map()
+  for (const row of memberRows) {
+    if (!membersByZone.has(row.zoneId)) membersByZone.set(row.zoneId, [])
+    membersByZone.get(row.zoneId).push({ childId: row.childId, displayName: row.displayName })
+  }
+  return zoneRows.map((z) => {
+    const members = membersByZone.get(z.id) || []
+    return {
+      ...z,
+      childIds: members.map((m) => m.childId),
+      childDisplayNames: members.map((m) => m.displayName),
+    }
+  })
+}
+
+app.get('/api/safezones/:childId', async (req, res) => {
+  const { childId } = req.params
+  const [idRows] = await pool.query(
+    `SELECT zone_id AS id FROM safe_zone_children WHERE child_id = ?`,
+    [childId],
+  )
+  const zones = await loadZonesByIds(idRows.map((r) => r.id))
+  return res.json(zones)
 })
 
 app.get('/api/safezones', async (_req, res) => {
-  const [rows] = await pool.query(
-    `SELECT id, child_id AS childId, zone_name AS zoneName, shape_type AS shapeType,
-            center_lat AS centerLat, center_lng AS centerLng, radius_meters AS radiusMeters,
-            corner_a_lat AS cornerALat, corner_a_lng AS cornerALng,
-            corner_c_lat AS cornerCLat, corner_c_lng AS cornerCLng,
-            active, created_at AS createdAt
-     FROM safe_zones
-     WHERE child_id = ?
-     ORDER BY created_at DESC`,
-    [GLOBAL_SAFEZONE_CHILD_ID],
-  )
-  return res.json(rows)
+  const [idRows] = await pool.query(`SELECT id FROM safe_zones ORDER BY created_at DESC`)
+  const zones = await loadZonesByIds(idRows.map((r) => r.id))
+  return res.json(zones)
 })
 
 app.post('/api/safezones', async (req, res) => {
   const {
-    childId,
+    childIds: rawChildIds,
     zoneName,
     shapeType,
     centerLat,
@@ -469,9 +544,11 @@ app.post('/api/safezones', async (req, res) => {
     cornerCLat,
     cornerCLng,
   } = req.body ?? {}
-  const effectiveChildId = typeof childId === 'string' && childId.trim()
-    ? childId.trim()
-    : GLOBAL_SAFEZONE_CHILD_ID
+  const validated = await normalizeChildIds(rawChildIds)
+  if (validated.error) {
+    return res.status(400).json({ message: validated.error })
+  }
+  const effectiveChildIds = validated.childIds
   if (!zoneName || typeof zoneName !== 'string' || !zoneName.trim()) {
     return res.status(400).json({ message: 'zoneName is required.' })
   }
@@ -518,11 +595,10 @@ app.post('/api/safezones', async (req, res) => {
 
   const [insertResult] = await pool.query(
     `INSERT INTO safe_zones
-      (child_id, zone_name, shape_type, center_lat, center_lng, radius_meters,
+      (zone_name, shape_type, center_lat, center_lng, radius_meters,
        corner_a_lat, corner_a_lng, corner_c_lat, corner_c_lng, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)`,
     [
-      effectiveChildId,
       zoneName.trim(),
       normalizedShape,
       centerLat,
@@ -534,9 +610,10 @@ app.post('/api/safezones', async (req, res) => {
       safeCornerCLng,
     ],
   )
+  await replaceZoneChildren(insertResult.insertId, effectiveChildIds)
   return res.status(201).json({
     id: insertResult.insertId,
-    childId: effectiveChildId,
+    childIds: effectiveChildIds,
     zoneName: zoneName.trim(),
     shapeType: normalizedShape,
     centerLat,
@@ -581,9 +658,19 @@ app.put('/api/safezones/:zoneId', async (req, res) => {
   }
   const {
     zoneName, shapeType, centerLat, centerLng, edgeLat, edgeLng, radiusMeters,
-    cornerALat, cornerALng, cornerCLat, cornerCLng, active
+    cornerALat, cornerALng, cornerCLat, cornerCLng, active,
+    childIds: rawChildIds,
   } = req.body ?? {}
-  
+
+  let validatedChildIds = null
+  if (rawChildIds !== undefined) {
+    const validated = await normalizeChildIds(rawChildIds)
+    if (validated.error) {
+      return res.status(400).json({ message: validated.error })
+    }
+    validatedChildIds = validated.childIds
+  }
+
   if (!zoneName || typeof zoneName !== 'string' || !zoneName.trim()) {
     return res.status(400).json({ message: 'zoneName is required.' })
   }
@@ -627,7 +714,7 @@ app.put('/api/safezones/:zoneId', async (req, res) => {
   const effectiveActive = typeof active === 'boolean' ? active : true;
 
   await pool.query(
-    `UPDATE safe_zones SET 
+    `UPDATE safe_zones SET
        zone_name = ?, shape_type = ?, center_lat = ?, center_lng = ?, radius_meters = ?,
        corner_a_lat = ?, corner_a_lng = ?, corner_c_lat = ?, corner_c_lng = ?, active = ?
      WHERE id = ?`,
@@ -636,6 +723,9 @@ app.put('/api/safezones/:zoneId', async (req, res) => {
       safeCornerALat, safeCornerALng, safeCornerCLat, safeCornerCLng, effectiveActive, zoneId
     ]
   )
+  if (validatedChildIds) {
+    await replaceZoneChildren(zoneId, validatedChildIds)
+  }
   return res.json({ ok: true, zoneId })
 })
 

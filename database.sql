@@ -75,7 +75,7 @@ CREATE TABLE `location_history` (
 
 CREATE TABLE `safe_zones` (
   `id` bigint NOT NULL AUTO_INCREMENT,
-  `child_id` varchar(128) NOT NULL,
+  `child_id` varchar(128) DEFAULT NULL,
   `zone_name` varchar(128) NOT NULL,
   `center_lat` double NOT NULL,
   `center_lng` double NOT NULL,
@@ -88,15 +88,26 @@ CREATE TABLE `safe_zones` (
   `corner_a_lng` double DEFAULT NULL,
   `corner_c_lat` double DEFAULT NULL,
   `corner_c_lng` double DEFAULT NULL,
-  PRIMARY KEY (`id`),
-  KEY `idx_safe_zones_child` (`child_id`,`active`)
+  PRIMARY KEY (`id`)
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
+-- clms.safe_zone_children definition (many-to-many between zones and children)
+
+CREATE TABLE `safe_zone_children` (
+  `zone_id` bigint NOT NULL,
+  `child_id` varchar(128) NOT NULL,
+  PRIMARY KEY (`zone_id`,`child_id`),
+  KEY `idx_szc_child` (`child_id`),
+  CONSTRAINT `fk_szc_zone` FOREIGN KEY (`zone_id`) REFERENCES `safe_zones` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_szc_child` FOREIGN KEY (`child_id`) REFERENCES `children` (`child_id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 
 
---Seed data
+
+
+-- Seed data
 
 
 

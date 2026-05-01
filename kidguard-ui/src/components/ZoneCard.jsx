@@ -25,6 +25,11 @@ export default function ZoneCard({ zone, onToggle, onDelete, onEdit }) {
         <div style={{ fontSize: '12px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
           {zone.type} · {zone.radius}
         </div>
+        {Array.isArray(zone.childNames) && zone.childNames.length > 0 && (
+          <div style={{ fontSize: '11px', color: 'var(--slab-blue)', fontFamily: 'var(--font-body)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', marginTop: '2px' }}>
+            {zone.childNames.join(' · ')}
+          </div>
+        )}
       </div>
       <div
         onClick={() => {

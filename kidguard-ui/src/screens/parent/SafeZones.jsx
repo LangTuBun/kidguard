@@ -92,24 +92,31 @@ export default function SafeZones() {
           display: 'flex', flexDirection: 'column', gap: '12px',
         }}>
           <p style={{ fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', margin: 0 }}>
-            Global safe zones apply to all tracked children.
+            Each safe zone is assigned to a specific child.
           </p>
           {error && <div style={{ color: 'var(--slab-red)', fontSize: '12px' }}>{error}</div>}
-          {zones.map((zone) => (
-            <ZoneCard
-              key={zone.id}
-              zone={{
-                id: zone.id,
-                name: zone.zoneName,
-                type: zone.shapeType || 'circle',
-                radius: `${Math.round(zone.radiusMeters)}m`,
-                active: Boolean(zone.active),
-              }}
-              onToggle={() => toggleZone(zone)}
-              onDelete={() => deleteZone(zone.id)}
-              onEdit={() => navigate(`/zones/edit/${zone.id}`)}
-            />
-          ))}
+          {zones.map((zone) => {
+            const ids = Array.isArray(zone.childIds) ? zone.childIds : []
+            const names = Array.isArray(zone.childDisplayNames) && zone.childDisplayNames.length === ids.length
+              ? zone.childDisplayNames
+              : ids.map((id) => children.find((c) => c.childId === id)?.displayName || id)
+            return (
+              <ZoneCard
+                key={zone.id}
+                zone={{
+                  id: zone.id,
+                  name: zone.zoneName,
+                  type: zone.shapeType || 'circle',
+                  radius: `${Math.round(zone.radiusMeters)}m`,
+                  active: Boolean(zone.active),
+                  childNames: names,
+                }}
+                onToggle={() => toggleZone(zone)}
+                onDelete={() => deleteZone(zone.id)}
+                onEdit={() => navigate(`/zones/edit/${zone.id}`)}
+              />
+            )
+          })}
           <div style={{ marginTop: '8px' }}>
             <Button fullWidth variant="ghost" onClick={() => navigate('/zones/add')}>＋ ADD NEW ZONE</Button>
           </div>
@@ -125,14 +132,14 @@ export default function SafeZones() {
               timestamp: Number(row.timestamp),
               displayName: children.find((c) => c.childId === row.childId)?.displayName || row.childId,
             }))}
-            zonesByChild={{
-              __ALL__: zones
-                .filter((z) => Boolean(z.active))
-                .map((z) => ({
-                  ...z,
-                  shapeType: z.shapeType || 'circle',
-                })),
-            }}
+            zonesByChild={zones
+              .filter((z) => Boolean(z.active))
+              .reduce((acc, z) => {
+                const key = (Array.isArray(z.childIds) && z.childIds[0]) || '_unassigned'
+                if (!acc[key]) acc[key] = []
+                acc[key].push({ ...z, shapeType: z.shapeType || 'circle' })
+                return acc
+              }, {})}
           />
           <div style={{
             position: 'absolute', top: '16px', left: '16px',

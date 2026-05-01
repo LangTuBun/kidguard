@@ -34,6 +34,47 @@ const searchResultIcon = new L.DivIcon({
   iconAnchor: [10, 10],
 })
 
+const childLocationIcon = new L.DivIcon({
+  className: 'kidguard-child-location-icon',
+  html: '<div style="width:14px;height:14px;background:#1A8C4E;border:2px solid #0D0D0D;border-radius:50%;box-shadow:2px 2px 0 #0D0D0D"></div>',
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+})
+
+function ChildLocationLayer({ childLocations, autoCenter }) {
+  const map = useMap()
+  const centeredRef = useRef(false)
+
+  useEffect(() => {
+    if (!autoCenter || centeredRef.current) return
+    if (!Array.isArray(childLocations) || childLocations.length === 0) return
+    if (childLocations.length === 1) {
+      map.setView([childLocations[0].lat, childLocations[0].lng], 16, { animate: true })
+    } else {
+      const bounds = L.latLngBounds(childLocations.map((l) => [l.lat, l.lng]))
+      map.fitBounds(bounds, { padding: [50, 50], animate: true, maxZoom: 16 })
+    }
+    centeredRef.current = true
+  }, [map, childLocations, autoCenter])
+
+  if (!Array.isArray(childLocations) || childLocations.length === 0) return null
+
+  return childLocations.map((loc) => (
+    <Marker
+      key={loc.childId}
+      position={[loc.lat, loc.lng]}
+      icon={childLocationIcon}
+      interactive={false}
+    >
+      <Tooltip direction="top" permanent className="child-location-tooltip">
+        <span style={{ fontFamily: 'var(--font-body)', fontWeight: 600, fontSize: '11px' }}>
+          {loc.displayName || loc.childId}
+        </span>
+      </Tooltip>
+    </Marker>
+  ))
+}
+
 function ClickHandler({
   mode,
   centerPoint,
@@ -212,6 +253,8 @@ export default function ZonePickerMap({
   onCornerAChange,
   onCornerCChange,
   mapCenter = [10.928, 106.702],
+  childLocations = [],
+  autoCenterOnChild = false,
 }) {
   const radius =
     centerPoint && edgePoint
@@ -225,6 +268,11 @@ export default function ZonePickerMap({
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
       <MapSearch />
+      <ChildLocationLayer
+        key={(childLocations[0]?.childId) || 'none'}
+        childLocations={childLocations}
+        autoCenter={autoCenterOnChild}
+      />
       <ClickHandler
         mode={mode}
         centerPoint={centerPoint}

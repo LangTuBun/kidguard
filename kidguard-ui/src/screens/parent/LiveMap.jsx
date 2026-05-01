@@ -71,9 +71,15 @@ export default function LiveMap() {
       const zoneRes = await fetch(`${apiBase}/api/safezones`)
       if (zoneRes.ok) {
         const zoneRows = await zoneRes.json().catch(() => [])
-        setZonesByChild({
-          __ALL__: (Array.isArray(zoneRows) ? zoneRows : []).filter((z) => z.active !== false),
-        })
+        const grouped = (Array.isArray(zoneRows) ? zoneRows : [])
+          .filter((z) => z.active !== false)
+          .reduce((acc, z) => {
+            const key = (Array.isArray(z.childIds) && z.childIds[0]) || '_unassigned'
+            if (!acc[key]) acc[key] = []
+            acc[key].push(z)
+            return acc
+          }, {})
+        setZonesByChild(grouped)
       } else {
         setZonesByChild({})
       }

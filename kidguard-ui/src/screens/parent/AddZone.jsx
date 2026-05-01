@@ -4,6 +4,7 @@ import WebLayout from '../../components/WebLayout'
 import Input from '../../components/Input'
 import Button from '../../components/Button'
 import ZonePickerMap from '../../components/ZonePickerMap'
+import { loadChildrenConfig, mergeChildren, saveChildrenConfig } from '../../utils/childrenConfig'
 
 function haversineMeters(lat1, lng1, lat2, lng2) {
   const R = 6371000
@@ -21,6 +22,7 @@ export default function AddZone() {
   const { zoneId } = useParams()
   const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
   const [zoneName, setZoneName] = useState('')
+  const [selectedChildIds, setSelectedChildIds] = useState([])
   const [shapeType, setShapeType] = useState('circle')
   const [centerPoint, setCenterPoint] = useState(null)
   const [edgePoint, setEdgePoint] = useState(null)
@@ -29,6 +31,8 @@ export default function AddZone() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(!!zoneId)
+  const [children, setChildren] = useState(() => loadChildrenConfig().filter((x) => x.active !== false))
+  const [childLocations, setChildLocations] = useState([])
 
   useEffect(() => {
     if (!zoneId) return
@@ -38,6 +42,7 @@ export default function AddZone() {
         const zone = rows.find(z => z.id === Number(zoneId))
         if (zone) {
           setZoneName(zone.zoneName || '')
+          setSelectedChildIds(Array.isArray(zone.childIds) ? zone.childIds : [])
           setShapeType(zone.shapeType || 'circle')
           if (zone.shapeType === 'rectangle') {
             setCornerA({ lat: zone.cornerALat, lng: zone.cornerALng })
@@ -51,6 +56,66 @@ export default function AddZone() {
       })
       .finally(() => setLoading(false))
   }, [zoneId, apiBase])
+
+  useEffect(() => {
+    let cancelled = false
+    async function fetchLocations() {
+      try {
+        let activeChildren = children
+        const childRes = await fetch(`${apiBase}/api/children`)
+        if (childRes.ok) {
+          const childRows = await childRes.json().catch(() => [])
+          const merged = mergeChildren(loadChildrenConfig(), childRows).filter((x) => x.active !== false)
+          if (!cancelled) {
+            setChildren(prev => {
+              if (JSON.stringify(prev) === JSON.stringify(merged)) return prev
+              saveChildrenConfig(merged)
+              return merged
+            })
+          }
+          activeChildren = merged
+        }
+        if (activeChildren.length === 0) {
+          if (!cancelled) setChildLocations([])
+          return
+        }
+        const idsParam = encodeURIComponent(activeChildren.map((c) => c.childId).join(','))
+        const res = await fetch(`${apiBase}/api/location/latest?childIds=${idsParam}`)
+        if (!res.ok) return
+        const data = await res.json().catch(() => [])
+        if (cancelled) return
+        const byId = new Map(activeChildren.map((c) => [c.childId, c]))
+        const merged = (Array.isArray(data) ? data : [])
+          .filter((row) => Number.isFinite(Number(row.lat)) && Number.isFinite(Number(row.lng)))
+          .map((row) => ({
+            ...row,
+            lat: Number(row.lat),
+            lng: Number(row.lng),
+            timestamp: Number(row.timestamp),
+            displayName: byId.get(row.childId)?.displayName || row.childId,
+          }))
+        setChildLocations(merged)
+      } catch {
+        /* ignore */
+      }
+    }
+    fetchLocations()
+    const id = setInterval(fetchLocations, 10000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [apiBase, children])
+
+  useEffect(() => {
+    if (zoneId) return
+    if (selectedChildIds.length > 0) return
+    if (children.length === 0) return
+    setSelectedChildIds([children[0].childId])
+  }, [zoneId, selectedChildIds, children])
+
+  function toggleChildSelected(childId) {
+    setSelectedChildIds((prev) => prev.includes(childId)
+      ? prev.filter((id) => id !== childId)
+      : [...prev, childId])
+  }
 
   const radius = centerPoint && edgePoint
     ? haversineMeters(centerPoint.lat, centerPoint.lng, edgePoint.lat, edgePoint.lng)
@@ -66,6 +131,7 @@ export default function AddZone() {
     : 0
   const rectArea = rectWidth * rectHeight
   const canSave = zoneName.trim()
+    && selectedChildIds.length > 0
     && (
       (shapeType === 'circle' && centerPoint && edgePoint && radius >= 10)
       || (shapeType === 'rectangle' && rectangleReady)
@@ -83,6 +149,7 @@ export default function AddZone() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           zoneName: zoneName.trim(),
+          childIds: selectedChildIds,
           shapeType,
           centerLat: shapeType === 'circle' ? centerPoint.lat : (cornerA.lat + cornerC.lat) / 2,
           centerLng: shapeType === 'circle' ? centerPoint.lng : (cornerA.lng + cornerC.lng) / 2,
@@ -145,10 +212,10 @@ export default function AddZone() {
             <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ZonePickerMap
             mapCenter={
-              shapeType === 'circle' && centerPoint 
-                ? [centerPoint.lat, centerPoint.lng] 
-                : (shapeType === 'rectangle' && cornerA && cornerC 
-                    ? [(cornerA.lat + cornerC.lat) / 2, (cornerA.lng + cornerC.lng) / 2] 
+              shapeType === 'circle' && centerPoint
+                ? [centerPoint.lat, centerPoint.lng]
+                : (shapeType === 'rectangle' && cornerA && cornerC
+                    ? [(cornerA.lat + cornerC.lat) / 2, (cornerA.lng + cornerC.lng) / 2]
                     : [10.928, 106.702])
             }
             mode={shapeType}
@@ -160,6 +227,10 @@ export default function AddZone() {
             cornerC={cornerC}
             onCornerAChange={setCornerA}
             onCornerCChange={setCornerC}
+            childLocations={selectedChildIds.length > 0
+              ? childLocations.filter((l) => selectedChildIds.includes(l.childId))
+              : []}
+            autoCenterOnChild={!zoneId && !centerPoint && !cornerA}
           />
           {/* Floating hint */}
           <div style={{
@@ -195,6 +266,61 @@ export default function AddZone() {
             value={zoneName}
             onChange={(e) => setZoneName(e.target.value)}
           />
+
+          <div>
+            <label style={{ fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', display: 'block', marginBottom: '6px' }}>
+              Assign To Children
+            </label>
+            <div style={{
+              border: '2px solid var(--border)', background: '#fff',
+              padding: '8px', boxShadow: '3px 3px 0 #0D0D0D',
+              display: 'flex', flexDirection: 'column', gap: '4px',
+              maxHeight: '180px', overflowY: 'auto',
+            }}>
+              {children.length === 0 ? (
+                <div style={{ fontSize: '12px', color: 'var(--slab-red)', fontFamily: 'var(--font-body)', padding: '4px' }}>
+                  No children registered. Add a child before creating zones.
+                </div>
+              ) : children.map((c) => {
+                const checked = selectedChildIds.includes(c.childId)
+                return (
+                  <label key={c.childId} style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '6px 8px', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: '13px',
+                    background: checked ? 'var(--bg-base)' : 'transparent',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleChildSelected(c.childId)}
+                      style={{ accentColor: 'var(--slab-blue)' }}
+                    />
+                    <span>{c.displayName || c.childId}</span>
+                  </label>
+                )
+              })}
+              {zoneId && selectedChildIds
+                .filter((id) => !children.some((c) => c.childId === id))
+                .map((orphanId) => (
+                  <label key={orphanId} style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '6px 8px', cursor: 'pointer', fontFamily: 'var(--font-body)', fontSize: '13px',
+                    color: 'var(--text-muted)',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked
+                      onChange={() => toggleChildSelected(orphanId)}
+                      style={{ accentColor: 'var(--slab-blue)' }}
+                    />
+                    <span>{orphanId} (inactive)</span>
+                  </label>
+                ))}
+            </div>
+            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px', fontFamily: 'var(--font-body)' }}>
+              Pick one or more children. The zone applies to every selected child.
+            </div>
+          </div>
 
           <div style={{ display: 'flex', gap: '8px' }}>
             <Button
@@ -262,7 +388,7 @@ export default function AddZone() {
               ALERT TYPE
             </div>
             <div style={{ fontSize: '13px', fontFamily: 'var(--font-body)', color: 'var(--text-primary)' }}>
-              Notify when any tracked child leaves all active global zones.
+              Notify when any selected child leaves all of their active safe zones.
             </div>
           </div>
 
