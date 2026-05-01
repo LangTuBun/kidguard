@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { GoogleLogin } from '@react-oauth/google'
+import { Shield, Lock } from 'lucide-react'
 import MobileFrame from '../../components/MobileFrame'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
@@ -23,17 +24,14 @@ export default function Login() {
       if (!res.ok) throw new Error(data.message || 'Authentication failed')
 
       if (data.isNewUser) {
-        // First-time user — collect profile info
         navigate('/complete-profile', {
           state: {
             email: data.email,
             name: data.name,
             googleSub: data.googleSub,
-            idToken: credentialResponse.credential,
           },
         })
       } else {
-        // Existing user — OTP was sent, go verify
         navigate('/mfa', { state: { email: data.email } })
       }
     } catch (err) {
@@ -47,107 +45,163 @@ export default function Login() {
     <MobileFrame>
       {/* Top bar */}
       <div style={{
-        background: '#fff', borderBottom: '2px solid var(--border)',
-        padding: '0 16px', height: '56px',
-        display: 'flex', alignItems: 'center', gap: '12px',
+        background: '#fff',
+        borderBottom: '2px solid var(--border)',
+        padding: '0 20px',
+        height: '56px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
       }}>
+        <Shield size={16} />
         <span style={{
-          border: '2px solid var(--border)', background: '#fff',
-          fontSize: '12px', fontWeight: 600, letterSpacing: '0.06em',
-          textTransform: 'uppercase', padding: '4px 10px', fontFamily: 'var(--font-body)',
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          fontSize: '15px',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
         }}>
-          PARENT LOGIN
+          KidGuard
         </span>
       </div>
 
       {/* Body */}
       <div style={{
-        flex: 1, overflowY: 'auto', padding: '40px 20px 20px',
-        display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0',
+        flex: 1,
+        padding: '32px 20px 24px',
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '24px',
       }}>
-        {/* Logo / title */}
-        <div style={{
-          width: '64px', height: '64px',
-          background: 'var(--slab-blue)', borderRadius: '50%',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          marginBottom: '24px',
-          boxShadow: '4px 4px 0 #0D0D0D',
-        }}>
-          <span style={{ fontSize: '28px' }}>🛡️</span>
-        </div>
 
-        <div style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '32px', marginBottom: '8px', textAlign: 'center' }}>
-          WELCOME BACK.
-        </div>
-        <p style={{ fontSize: '14px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', margin: '0 0 40px', textAlign: 'center' }}>
-          Sign in with your Google account to continue.
-        </p>
-
-        {/* Google Sign-In card */}
-        <div style={{
-          width: '100%',
-          border: '2px solid var(--border)',
-          padding: '28px 20px',
-          background: '#fff',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          gap: '16px',
-          boxShadow: '4px 4px 0 #0D0D0D',
-        }}>
+        {/* Headline block */}
+        <div>
           <div style={{
-            fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em',
-            textTransform: 'uppercase', color: 'var(--text-muted)',
-            fontFamily: 'var(--font-body)',
+            fontFamily: 'var(--font-display)',
+            fontWeight: 800,
+            fontSize: '36px',
+            lineHeight: 1.05,
+            marginBottom: '10px',
           }}>
-            SIGN IN WITH
-          </div>
-
-          {loading ? (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: '10px',
-              padding: '10px 0', color: 'var(--text-muted)',
-              fontFamily: 'var(--font-body)', fontSize: '13px', fontWeight: 600,
+            PARENT<br />
+            <span style={{
+              background: 'var(--slab-blue)',
+              color: '#fff',
+              padding: '2px 10px',
+              display: 'inline-block',
             }}>
-              <div style={{
-                width: '20px', height: '20px',
-                border: '2px solid var(--slab-blue)',
-                borderTopColor: 'transparent',
-                animation: 'spin 0.8s linear infinite',
-                borderRadius: '50%',
-              }} />
-              AUTHENTICATING…
-            </div>
-          ) : (
-            <GoogleLogin
-              onSuccess={handleGoogleSuccess}
-              onError={() => setError('Google sign-in failed. Please try again.')}
-              theme="outline"
-              size="large"
-              text="signin_with"
-              shape="rectangular"
-              width="280"
-            />
-          )}
-
+              SIGN IN
+            </span>
+          </div>
           <p style={{
-            fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center',
-            fontFamily: 'var(--font-body)', margin: 0, lineHeight: 1.5,
+            margin: 0,
+            fontSize: '13px',
+            color: 'var(--text-muted)',
+            fontFamily: 'var(--font-body)',
+            lineHeight: 1.6,
           }}>
-            A one-time verification code will be<br />sent to your email after sign-in.
+            Sign in with your Google account. A 6-digit verification code will be sent to your email.
           </p>
         </div>
 
+        {/* Divider */}
+        <div style={{ height: '2px', background: 'var(--border)' }} />
+
+        {/* Google sign-in block */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            fontFamily: 'var(--font-body)',
+            color: 'var(--text-muted)',
+          }}>
+            Continue with
+          </div>
+
+          <div style={{
+            border: '2px solid var(--border)',
+            background: '#fff',
+            padding: '20px',
+            boxShadow: '4px 4px 0 var(--border)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '12px',
+          }}>
+            {loading ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '10px',
+                height: '40px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '12px',
+                fontWeight: 700,
+                letterSpacing: '0.06em',
+                color: 'var(--text-muted)',
+              }}>
+                <div style={{
+                  width: '16px',
+                  height: '16px',
+                  border: '2px solid var(--slab-blue)',
+                  borderTopColor: 'transparent',
+                  animation: 'spin 0.7s linear infinite',
+                }} />
+                AUTHENTICATING...
+              </div>
+            ) : (
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={() => setError('Google sign-in failed. Please try again.')}
+                theme="outline"
+                size="large"
+                text="signin_with"
+                shape="rectangular"
+                width="280"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Error banner */}
         {error && (
           <div style={{
-            marginTop: '16px', width: '100%', padding: '10px 12px',
-            background: '#fff0f0', border: '2px solid var(--slab-red)',
-            fontSize: '12px', fontFamily: 'var(--font-body)',
-            color: 'var(--slab-red)', fontWeight: 600,
+            padding: '10px 14px',
+            background: '#fff0f0',
+            border: '2px solid var(--slab-red)',
+            borderLeft: '5px solid var(--slab-red)',
+            fontSize: '12px',
+            fontFamily: 'var(--font-body)',
+            color: 'var(--slab-red)',
+            fontWeight: 600,
           }}>
-            ⚠ {error}
+            {error}
           </div>
         )}
+
+        {/* Info strip */}
+        <div style={{
+          marginTop: 'auto',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          border: '2px solid var(--border)',
+          padding: '10px 14px',
+          background: 'var(--bg-base)',
+          boxShadow: '3px 3px 0 var(--border)',
+        }}>
+          <Lock size={12} color="var(--text-muted)" strokeWidth={2.5} />
+          <span style={{
+            fontSize: '11px',
+            fontFamily: 'var(--font-body)',
+            color: 'var(--text-muted)',
+            lineHeight: 1.5,
+          }}>
+            Two-factor auth is enforced on every sign-in.
+          </span>
+        </div>
       </div>
 
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>

@@ -160,7 +160,7 @@ export default function Settings() {
                     color: 'var(--text-muted)', fontFamily: 'var(--font-body)',
                     border: '1.5px solid var(--border)', padding: '2px 7px', background: 'var(--bg-base)',
                   }}>
-                    🔵 GOOGLE ACCOUNT
+                    GOOGLE ACCOUNT
                   </div>
                 </div>
               </div>

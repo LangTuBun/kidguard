@@ -7,6 +7,31 @@ import Input from '../../components/Input'
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
 
+function FieldLabel({ icon: Icon, text, optional }) {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '5px',
+      fontSize: '10px',
+      fontWeight: 700,
+      letterSpacing: '0.1em',
+      textTransform: 'uppercase',
+      fontFamily: 'var(--font-body)',
+      color: 'var(--text-primary)',
+      marginBottom: '6px',
+    }}>
+      <Icon size={11} strokeWidth={2.5} />
+      {text}
+      {optional && (
+        <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--text-muted)', fontSize: '10px' }}>
+          — optional
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function CompleteProfile() {
   const navigate = useNavigate()
   const { state } = useLocation()
@@ -21,7 +46,6 @@ export default function CompleteProfile() {
   const [error,       setError]       = useState(null)
   const [loading,     setLoading]     = useState(false)
 
-  // Redirect if arrived without google state
   if (!prefillEmail) {
     navigate('/login')
     return null
@@ -31,8 +55,8 @@ export default function CompleteProfile() {
     if (e?.preventDefault) e.preventDefault()
     setError(null)
 
-    if (!name.trim())       return setError('Full name is required.')
-    if (!dateOfBirth)       return setError('Date of birth is required.')
+    if (!name.trim())  return setError('Full name is required.')
+    if (!dateOfBirth)  return setError('Date of birth is required.')
 
     setLoading(true)
     try {
@@ -49,8 +73,6 @@ export default function CompleteProfile() {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.message || 'Profile completion failed')
-
-      // Account created and OTP sent
       navigate('/mfa', { state: { email: prefillEmail } })
     } catch (err) {
       setError(err.message)
@@ -63,15 +85,27 @@ export default function CompleteProfile() {
     <MobileFrame>
       {/* Top bar */}
       <div style={{
-        background: '#fff', borderBottom: '2px solid var(--border)',
-        padding: '0 16px', height: '56px',
-        display: 'flex', alignItems: 'center', gap: '12px',
+        background: '#fff',
+        borderBottom: '2px solid var(--border)',
+        padding: '0 20px',
+        height: '56px',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '12px',
       }}>
-        <ChevronLeft size={20} style={{ cursor: 'pointer' }} onClick={() => navigate('/login')} />
-        <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '18px' }}>
-          <span style={{ background: 'var(--slab-blue)', color: '#fff', padding: '2px 8px' }}>
-            COMPLETE PROFILE
-          </span>
+        <ChevronLeft
+          size={20}
+          style={{ cursor: 'pointer', flexShrink: 0 }}
+          onClick={() => navigate('/login')}
+        />
+        <span style={{
+          fontFamily: 'var(--font-display)',
+          fontWeight: 700,
+          fontSize: '15px',
+          letterSpacing: '0.04em',
+          textTransform: 'uppercase',
+        }}>
+          Complete Profile
         </span>
       </div>
 
@@ -79,45 +113,86 @@ export default function CompleteProfile() {
       <form
         onSubmit={handleSubmit}
         style={{
-          flex: 1, overflowY: 'auto', padding: '24px 20px',
-          display: 'flex', flexDirection: 'column', gap: '20px',
+          flex: 1,
+          padding: '24px 20px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px',
         }}
       >
-        {/* Welcome banner */}
+        {/* Account strip */}
         <div style={{
-          border: '2px solid var(--border)', padding: '16px',
-          background: 'var(--bg-base)', boxShadow: '3px 3px 0 #0D0D0D',
+          border: '2px solid var(--border)',
+          background: '#fff',
+          padding: '14px 16px',
+          boxShadow: '3px 3px 0 var(--border)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '2px',
         }}>
-          <div style={{ fontSize: '11px', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', marginBottom: '4px' }}>
-            SIGNED IN AS
+          <div style={{
+            fontSize: '10px',
+            fontWeight: 700,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            fontFamily: 'var(--font-body)',
+            color: 'var(--text-muted)',
+            marginBottom: '4px',
+          }}>
+            Google Account
           </div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: '13px', fontWeight: 600, color: 'var(--slab-blue)', wordBreak: 'break-all' }}>
+          <div style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: '13px',
+            fontWeight: 600,
+            color: 'var(--slab-blue)',
+            wordBreak: 'break-all',
+          }}>
             {prefillEmail}
           </div>
         </div>
 
-        <p style={{ fontSize: '13px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', margin: 0, lineHeight: 1.6 }}>
-          Welcome! Since this is your first time, please fill in your profile details before continuing.
+        {/* Instruction */}
+        <p style={{
+          margin: 0,
+          fontSize: '13px',
+          color: 'var(--text-muted)',
+          fontFamily: 'var(--font-body)',
+          lineHeight: 1.6,
+          borderLeft: '3px solid var(--slab-blue)',
+          paddingLeft: '12px',
+        }}>
+          First time here. Please fill in your details before continuing.
         </p>
 
         {/* Fields */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <Input
-            label="Full Name"
-            placeholder="Your full name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
+          {/* Full name */}
+          <div>
+            <FieldLabel icon={User} text="Full Name" />
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Your full name"
+              required
+              style={{
+                width: '100%',
+                border: '2px solid var(--border)',
+                padding: '10px 12px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '14px',
+                background: '#fff',
+                outline: 'none',
+                boxSizing: 'border-box',
+                boxShadow: '2px 2px 0 var(--border)',
+              }}
+            />
+          </div>
 
-          {/* Date of Birth */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{
-              fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-              textTransform: 'uppercase', fontFamily: 'var(--font-body)',
-              display: 'flex', alignItems: 'center', gap: '5px',
-            }}>
-              <Calendar size={12} /> DATE OF BIRTH
-            </label>
+          {/* Date of birth */}
+          <div>
+            <FieldLabel icon={Calendar} text="Date of Birth" />
             <input
               type="date"
               value={dateOfBirth}
@@ -125,52 +200,62 @@ export default function CompleteProfile() {
               max={new Date().toISOString().split('T')[0]}
               required
               style={{
-                border: '2px solid var(--border)', padding: '10px 12px',
-                fontFamily: 'var(--font-body)', fontSize: '14px',
-                background: '#fff', outline: 'none', width: '100%',
+                width: '100%',
+                border: '2px solid var(--border)',
+                padding: '10px 12px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '14px',
+                background: '#fff',
+                outline: 'none',
                 boxSizing: 'border-box',
+                boxShadow: '2px 2px 0 var(--border)',
               }}
             />
           </div>
 
           {/* Phone (optional) */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <label style={{
-              fontSize: '11px', fontWeight: 700, letterSpacing: '0.08em',
-              textTransform: 'uppercase', fontFamily: 'var(--font-body)',
-              display: 'flex', alignItems: 'center', gap: '5px',
-            }}>
-              <Phone size={12} /> PHONE <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>&nbsp;(optional)</span>
-            </label>
+          <div>
+            <FieldLabel icon={Phone} text="Phone" optional />
             <input
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+84 xxx xxx xxx"
               style={{
-                border: '2px solid var(--border)', padding: '10px 12px',
-                fontFamily: 'var(--font-body)', fontSize: '14px',
-                background: '#fff', outline: 'none', width: '100%',
+                width: '100%',
+                border: '2px solid var(--border)',
+                padding: '10px 12px',
+                fontFamily: 'var(--font-body)',
+                fontSize: '14px',
+                background: '#fff',
+                outline: 'none',
                 boxSizing: 'border-box',
+                boxShadow: '2px 2px 0 var(--border)',
               }}
             />
           </div>
         </div>
 
+        {/* Error */}
         {error && (
           <div style={{
-            padding: '10px 12px',
-            background: '#fff0f0', border: '2px solid var(--slab-red)',
-            fontSize: '12px', fontFamily: 'var(--font-body)',
-            color: 'var(--slab-red)', fontWeight: 600,
+            padding: '10px 14px',
+            background: '#fff0f0',
+            border: '2px solid var(--slab-red)',
+            borderLeft: '5px solid var(--slab-red)',
+            fontSize: '12px',
+            fontFamily: 'var(--font-body)',
+            color: 'var(--slab-red)',
+            fontWeight: 600,
           }}>
-            ⚠ {error}
+            {error}
           </div>
         )}
 
+        {/* Submit */}
         <div style={{ marginTop: 'auto', paddingTop: '8px' }}>
-          <Button fullWidth variant="primary" onClick={handleSubmit}>
-            {loading ? 'CREATING ACCOUNT…' : 'CREATE ACCOUNT & VERIFY EMAIL →'}
+          <Button fullWidth variant="primary" onClick={handleSubmit} disabled={loading}>
+            {loading ? 'CREATING ACCOUNT...' : 'CREATE ACCOUNT & VERIFY EMAIL ->'}
           </Button>
         </div>
       </form>

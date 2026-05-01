@@ -222,7 +222,6 @@ export default function Dashboard() {
     return (
       <WebLayout active="map">
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: '16px', fontFamily: 'var(--font-body)', color: 'var(--text-muted)' }}>
-          <div style={{ fontSize: '40px' }}>👶</div>
           <div style={{ fontWeight: 700, fontSize: '15px' }}>No children registered yet.</div>
           <button onClick={() => navigate('/child-profile')} style={{ background: 'var(--slab-blue)', color: '#fff', border: '2px solid var(--border)', padding: '8px 20px', fontWeight: 700, fontSize: '12px', textTransform: 'uppercase', cursor: 'pointer', fontFamily: 'var(--font-body)' }}>
             ADD CHILD →
