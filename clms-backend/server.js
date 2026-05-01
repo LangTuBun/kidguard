@@ -571,6 +571,72 @@ app.patch('/api/safezones/:zoneId', async (req, res) => {
   return res.json({ ok: true, zoneId })
 })
 
+app.put('/api/safezones/:zoneId', async (req, res) => {
+  const zoneId = Number(req.params.zoneId)
+  if (!Number.isFinite(zoneId) || zoneId <= 0) {
+    return res.status(400).json({ message: 'Invalid zoneId.' })
+  }
+  const {
+    zoneName, shapeType, centerLat, centerLng, edgeLat, edgeLng, radiusMeters,
+    cornerALat, cornerALng, cornerCLat, cornerCLng, active
+  } = req.body ?? {}
+  
+  if (!zoneName || typeof zoneName !== 'string' || !zoneName.trim()) {
+    return res.status(400).json({ message: 'zoneName is required.' })
+  }
+  if (!Number.isFinite(centerLat) || !Number.isFinite(centerLng)) {
+    return res.status(400).json({ message: 'centerLat/centerLng must be numbers.' })
+  }
+  const normalizedShape = shapeType === 'rectangle' ? 'rectangle' : 'circle'
+  let computedRadius = Number(radiusMeters)
+  let safeCornerALat = null
+  let safeCornerALng = null
+  let safeCornerCLat = null
+  let safeCornerCLng = null
+
+  if (normalizedShape === 'rectangle') {
+    safeCornerALat = Number(cornerALat)
+    safeCornerALng = Number(cornerALng)
+    safeCornerCLat = Number(cornerCLat)
+    safeCornerCLng = Number(cornerCLng)
+    if (!Number.isFinite(safeCornerALat) || !Number.isFinite(safeCornerALng) ||
+        !Number.isFinite(safeCornerCLat) || !Number.isFinite(safeCornerCLng)) {
+      return res.status(400).json({ message: 'Rectangle requires cornerALat/cornerALng/cornerCLat/cornerCLng.' })
+    }
+    const latSpan = Math.abs(safeCornerALat - safeCornerCLat)
+    const lngSpan = Math.abs(safeCornerALng - safeCornerCLng)
+    if (latSpan < 0.00001 || lngSpan < 0.00001) {
+      return res.status(400).json({ message: 'Rectangle zone is too small.' })
+    }
+    const midLat = (safeCornerALat + safeCornerCLat) / 2
+    const midLng = (safeCornerALng + safeCornerCLng) / 2
+    computedRadius = haversineMeters(midLat, midLng, safeCornerALat, safeCornerALng)
+  } else if (!Number.isFinite(computedRadius) || computedRadius <= 0) {
+    if (!Number.isFinite(edgeLat) || !Number.isFinite(edgeLng)) {
+      return res.status(400).json({ message: 'Provide edgeLat/edgeLng or radiusMeters.' })
+    }
+    computedRadius = haversineMeters(centerLat, centerLng, edgeLat, edgeLng)
+  }
+  if (!Number.isFinite(computedRadius) || computedRadius < 10) {
+    return res.status(400).json({ message: 'radiusMeters is too small.' })
+  }
+
+  const effectiveActive = typeof active === 'boolean' ? active : true;
+
+  await pool.query(
+    `UPDATE safe_zones SET 
+       zone_name = ?, shape_type = ?, center_lat = ?, center_lng = ?, radius_meters = ?,
+       corner_a_lat = ?, corner_a_lng = ?, corner_c_lat = ?, corner_c_lng = ?, active = ?
+     WHERE id = ?`,
+    [
+      zoneName.trim(), normalizedShape, centerLat, centerLng, computedRadius,
+      safeCornerALat, safeCornerALng, safeCornerCLat, safeCornerCLng, effectiveActive, zoneId
+    ]
+  )
+  return res.json({ ok: true, zoneId })
+})
+
+
 app.delete('/api/safezones/:zoneId', async (req, res) => {
   const zoneId = Number(req.params.zoneId)
   if (!Number.isFinite(zoneId) || zoneId <= 0) {
@@ -1160,6 +1226,7 @@ app.get('/api/dashboard/:childId', async (req, res) => {
         notifications.push({
           id: `${childId}-arrive-${row.timestamp}`,
           type: 'geofence',
+          isArrival: true,
           childName: childInfo.name,
           message: `arrived at ${zName}`,
           timestamp: new Date(row.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),

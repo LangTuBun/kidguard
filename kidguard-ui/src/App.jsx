@@ -41,6 +41,7 @@ export default function App() {
           <Route path="/history"       element={<ProtectedRoute><History /></ProtectedRoute>} />
           <Route path="/zones"         element={<ProtectedRoute><SafeZones /></ProtectedRoute>} />
           <Route path="/zones/add"     element={<ProtectedRoute><AddZone /></ProtectedRoute>} />
+          <Route path="/zones/edit/:zoneId" element={<ProtectedRoute><AddZone /></ProtectedRoute>} />
           <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
           <Route path="/sos-alert"     element={<ProtectedRoute><SOSModal /></ProtectedRoute>} />
           <Route path="/child-profile" element={<ProtectedRoute><ChildProfile /></ProtectedRoute>} />

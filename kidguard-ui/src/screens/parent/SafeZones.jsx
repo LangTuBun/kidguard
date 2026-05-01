@@ -107,6 +107,7 @@ export default function SafeZones() {
               }}
               onToggle={() => toggleZone(zone)}
               onDelete={() => deleteZone(zone.id)}
+              onEdit={() => navigate(`/zones/edit/${zone.id}`)}
             />
           ))}
           <div style={{ marginTop: '8px' }}>

@@ -390,9 +390,9 @@ export default function Dashboard() {
           bottom: '24px',
           right: '24px',
           zIndex: 9999,
-          background: '#FFF8F0',
+          background: toastAlert.isArrival ? '#F0FFF4' : '#FFF8F0',
           border: '2px solid var(--border)',
-          borderLeft: '5px solid var(--slab-orange)',
+          borderLeft: toastAlert.isArrival ? '5px solid var(--slab-green)' : '5px solid var(--slab-orange)',
           boxShadow: '4px 4px 0 #0D0D0D',
           padding: '12px 16px',
           width: '320px',
@@ -400,8 +400,8 @@ export default function Dashboard() {
           animation: 'slideUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <span style={{ background: 'var(--slab-orange)', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 7px', fontFamily: 'var(--font-body)' }}>
-              ⚠ GEOFENCE
+            <span style={{ background: toastAlert.isArrival ? 'var(--slab-green)' : 'var(--slab-orange)', color: '#fff', fontSize: '10px', fontWeight: 700, letterSpacing: '0.08em', padding: '2px 7px', fontFamily: 'var(--font-body)' }}>
+              {toastAlert.isArrival ? '✓ ARRIVED' : '⚠ GEOFENCE'}
             </span>
             <button 
               onClick={() => setToastAlert(null)}

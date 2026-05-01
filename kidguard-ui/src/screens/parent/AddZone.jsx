@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import WebLayout from '../../components/WebLayout'
 import Input from '../../components/Input'
 import Button from '../../components/Button'
@@ -18,6 +18,7 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 
 export default function AddZone() {
   const navigate = useNavigate()
+  const { zoneId } = useParams()
   const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
   const [zoneName, setZoneName] = useState('')
   const [shapeType, setShapeType] = useState('circle')
@@ -27,6 +28,29 @@ export default function AddZone() {
   const [cornerC, setCornerC] = useState(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(!!zoneId)
+
+  useEffect(() => {
+    if (!zoneId) return
+    fetch(`${apiBase}/api/safezones`)
+      .then(r => r.ok ? r.json() : [])
+      .then(rows => {
+        const zone = rows.find(z => z.id === Number(zoneId))
+        if (zone) {
+          setZoneName(zone.zoneName || '')
+          setShapeType(zone.shapeType || 'circle')
+          if (zone.shapeType === 'rectangle') {
+            setCornerA({ lat: zone.cornerALat, lng: zone.cornerALng })
+            setCornerC({ lat: zone.cornerCLat, lng: zone.cornerCLng })
+          } else {
+            setCenterPoint({ lat: zone.centerLat, lng: zone.centerLng })
+            const rDeg = (zone.radiusMeters || 100) / 111320
+            setEdgePoint({ lat: zone.centerLat, lng: zone.centerLng + rDeg })
+          }
+        }
+      })
+      .finally(() => setLoading(false))
+  }, [zoneId, apiBase])
 
   const radius = centerPoint && edgePoint
     ? haversineMeters(centerPoint.lat, centerPoint.lng, edgePoint.lat, edgePoint.lng)
@@ -52,8 +76,10 @@ export default function AddZone() {
     setSaving(true)
     setError('')
     try {
-      const res = await fetch(`${apiBase}/api/safezones`, {
-        method: 'POST',
+      const url = zoneId ? `${apiBase}/api/safezones/${zoneId}` : `${apiBase}/api/safezones`
+      const method = zoneId ? 'PUT' : 'POST'
+      const res = await fetch(url, {
+        method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           zoneName: zoneName.trim(),
@@ -105,15 +131,26 @@ export default function AddZone() {
           <span style={{ fontSize: '20px', color: 'var(--text-primary)' }}>←</span>
         </button>
         <span style={{ fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: '20px' }}>
-          ADD <span style={{ background: 'var(--slab-blue)', color: '#fff', padding: '2px 8px' }}>SAFE ZONE</span>
+          {zoneId ? 'EDIT ' : 'ADD '}<span style={{ background: 'var(--slab-blue)', color: '#fff', padding: '2px 8px' }}>SAFE ZONE</span>
         </span>
       </div>
 
       {/* Side-by-side layout */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        {/* Left: map */}
-        <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--font-body)' }}>Loading zone data...</div>
+        ) : (
+          <>
+            {/* Left: map */}
+            <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
           <ZonePickerMap
+            mapCenter={
+              shapeType === 'circle' && centerPoint 
+                ? [centerPoint.lat, centerPoint.lng] 
+                : (shapeType === 'rectangle' && cornerA && cornerC 
+                    ? [(cornerA.lat + cornerC.lat) / 2, (cornerA.lng + cornerC.lng) / 2] 
+                    : [10.928, 106.702])
+            }
             mode={shapeType}
             centerPoint={centerPoint}
             edgePoint={edgePoint}
@@ -238,6 +275,8 @@ export default function AddZone() {
             <Button fullWidth variant="ghost" onClick={() => navigate('/zones')}>CANCEL</Button>
           </div>
         </div>
+        </>
+        )}
       </div>
     </WebLayout>
   )
