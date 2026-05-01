@@ -161,9 +161,7 @@ export default function Dashboard() {
 
   // ── Derived values ──────────────────────────────────────────────────────────
   const child   = data?.child ?? fallbackMock
-  // Only show geofence-type alerts (no SOS — feature doesn't exist yet)
   const alerts  = (data?.notifications?.length ? data.notifications : mockNotifications)
-    .filter((a) => a.type !== 'sos')
 
   useEffect(() => {
     let timer;
@@ -185,7 +183,7 @@ export default function Dashboard() {
   }, [alerts, settings.geofenceAlerts])
 
   const geofenceViolated = child.currentZone === 'Outside' || child.currentZone == null
-  const safetyStatus = deriveSafetyStatus({ online: child.online, geofenceViolated, hasSOS: false })
+  const safetyStatus = deriveSafetyStatus({ online: child.online, geofenceViolated })
 
   const mapLocations = (child.location?.lat && child.location?.lng) ? [{
     childId:     selectedId ?? 'unknown',

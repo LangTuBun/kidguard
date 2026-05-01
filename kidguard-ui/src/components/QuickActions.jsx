@@ -38,11 +38,10 @@ function QBtn({ icon: Icon, label, bg = '#fff', color = 'var(--text-primary)', o
 /**
  * @param {function} onRefresh
  * @param {function} onCall
- * @param {function} onSOSCheck
  * @param {function} onEditZones
  * @param {boolean}  refreshing
  */
-export default function QuickActions({ onRefresh, onCall, onSOSCheck, onEditZones, refreshing = false }) {
+export default function QuickActions({ onRefresh, onCall, onEditZones, refreshing = false }) {
   return (
     <div style={{ overflow: 'hidden' }}>
       <div style={{ fontSize: '10px', fontWeight: 600, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', marginBottom: '8px' }}>
@@ -63,13 +62,7 @@ export default function QuickActions({ onRefresh, onCall, onSOSCheck, onEditZone
           bg="#fff"
           onClick={onCall}
         />
-        <QBtn
-          icon={AlertOctagon}
-          label="SOS CHECK"
-          bg="var(--slab-red)"
-          color="#fff"
-          onClick={onSOSCheck}
-        />
+
         <QBtn
           icon={MapPin}
           label="EDIT ZONES"

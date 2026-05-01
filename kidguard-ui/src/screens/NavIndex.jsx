@@ -13,15 +13,11 @@ const screens = [
   { code: 'P8',  name: 'Safe Zones',      path: '/zones',             role: 'parent' },
   { code: 'P9',  name: 'Add Zone',        path: '/zones/add',         role: 'parent' },
   { code: 'P10', name: 'Notifications',   path: '/notifications',     role: 'parent' },
-  { code: 'P11', name: 'SOS Alert',       path: '/sos-alert',         role: 'parent' },
   { code: 'P12', name: 'Child Profile',   path: '/child-profile',     role: 'parent' },
   { code: 'P13', name: 'Settings',        path: '/settings',          role: 'parent' },
   { code: 'P14', name: 'Offline',         path: '/offline',           role: 'parent' },
   { code: 'C1',  name: 'Child Login',     path: '/child/login',       role: 'child' },
   { code: 'C2',  name: 'Child Home',      path: '/child',             role: 'child' },
-  { code: 'C3',  name: 'SOS Confirm',     path: '/child/sos-confirm', role: 'child' },
-  { code: 'C4',  name: 'SOS Sent',        path: '/child/sos-sent',    role: 'child' },
-  { code: 'C5',  name: 'SOS Queued',      path: '/child/sos-queued',  role: 'child' },
 ]
 
 export default function NavIndex() {

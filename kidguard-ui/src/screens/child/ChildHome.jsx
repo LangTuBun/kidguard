@@ -39,43 +39,6 @@ export default function ChildHome() {
         <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: 600, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.12em', fontFamily: 'var(--font-body)' }}>
           NEED HELP?
         </div>
-
-        {/* SOS button */}
-        <div style={{ position: 'relative' }}>
-          <div style={{
-            position: 'absolute', inset: '-6px',
-            border: '3px solid var(--slab-red)',
-            animation: 'brutalPulse 1.5s ease-out infinite',
-          }} />
-          <button
-            onClick={() => navigate('/child/sos-confirm')}
-            style={{
-              width: '100%', height: '160px',
-              background: 'var(--slab-red)',
-              border: '3px solid var(--border)',
-              boxShadow: '5px 5px 0 #0D0D0D',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', position: 'relative',
-              transition: 'transform 0.1s, box-shadow 0.1s',
-            }}
-            onMouseEnter={e => {
-              e.currentTarget.style.transform = 'translate(-3px, -3px)'
-              e.currentTarget.style.boxShadow = '8px 8px 0 #0D0D0D'
-            }}
-            onMouseLeave={e => {
-              e.currentTarget.style.transform = 'translate(0, 0)'
-              e.currentTarget.style.boxShadow = '5px 5px 0 #0D0D0D'
-            }}
-          >
-            <span style={{ fontFamily: 'var(--font-display)', fontWeight: 800, fontSize: '56px', color: '#fff', letterSpacing: '0.05em' }}>
-              SOS
-            </span>
-          </button>
-        </div>
-
-        <div style={{ textAlign: 'center', fontSize: '12px', fontWeight: 500, textTransform: 'uppercase', color: 'var(--text-muted)', letterSpacing: '0.08em', fontFamily: 'var(--font-body)' }}>
-          HOLD TO SEND EMERGENCY ALERT
-        </div>
       </div>
     </MobileFrame>
   )

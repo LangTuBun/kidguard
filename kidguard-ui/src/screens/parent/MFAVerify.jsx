@@ -12,15 +12,14 @@ const RESEND_COOLDOWN = 60
 export default function MFAVerify() {
   const navigate = useNavigate()
   const { state } = useLocation()
-  const email   = state?.email   || ''
-  const idToken = state?.idToken || ''
+  const email = state?.email || ''
 
-  const [otp,      setOtp]      = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [otp,       setOtp]       = useState('')
+  const [loading,   setLoading]   = useState(false)
   const [resending, setResending] = useState(false)
-  const [error,    setError]    = useState(null)
-  const [success,  setSuccess]  = useState(false)
-  const [cooldown, setCooldown] = useState(RESEND_COOLDOWN)
+  const [error,     setError]     = useState(null)
+  const [success,   setSuccess]   = useState(false)
+  const [cooldown,  setCooldown]  = useState(RESEND_COOLDOWN)
   const timerRef = useRef(null)
 
   // Countdown timer
@@ -62,25 +61,32 @@ export default function MFAVerify() {
     }
   }
 
+  const startCooldown = () => {
+    setCooldown(RESEND_COOLDOWN)
+    clearInterval(timerRef.current)
+    timerRef.current = setInterval(() => {
+      setCooldown(prev => {
+        if (prev <= 1) { clearInterval(timerRef.current); return 0 }
+        return prev - 1
+      })
+    }, 1000)
+  }
+
   const handleResend = async () => {
-    if (cooldown > 0 || !idToken) return
+    if (cooldown > 0 || resending) return
     setResending(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/auth/google`, {
+      const res = await fetch(`${API_BASE}/auth/resend-otp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken }),
+        body: JSON.stringify({ email }),
       })
-      if (!res.ok) throw new Error('Failed to resend OTP')
-      setCooldown(RESEND_COOLDOWN)
-      clearInterval(timerRef.current)
-      timerRef.current = setInterval(() => {
-        setCooldown(prev => {
-          if (prev <= 1) { clearInterval(timerRef.current); return 0 }
-          return prev - 1
-        })
-      }, 1000)
+      if (!res.ok) {
+        const data = await res.json()
+        throw new Error(data.message || 'Failed to resend OTP')
+      }
+      startCooldown()
     } catch (err) {
       setError(err.message)
     } finally {

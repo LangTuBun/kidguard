@@ -5,7 +5,6 @@ import mysql from 'mysql2/promise'
 import { OAuth2Client } from 'google-auth-library'
 import nodemailer from 'nodemailer'
 import jwt from 'jsonwebtoken'
-import bcrypt from 'bcrypt'
 
 import { fetchThingPropertiesRaw, pickLatLngFromPropertiesPayload } from './arduinoCloud.js'
 import { tryExtractLatLngFromGpsJsonValue } from './gpsParse.js'
@@ -230,13 +229,17 @@ async function ensureSchema() {
     )
   `)
 
-  // Defensive migration for older dev DBs that already have a `users` table
-  // without `password_hash`. Swallow the duplicate-column error if it's already there.
-  try {
-    await pool.query('ALTER TABLE users ADD COLUMN password_hash VARCHAR(255) NULL')
-  } catch (err) {
-    if (err && err.code !== 'ER_DUP_FIELDNAME') throw err
+  // Defensive migrations for older dev DBs.
+  const ensureUserColumn = async (col, ddl) => {
+    const [cols] = await pool.query(
+      `SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='users' AND column_name=? LIMIT 1`,
+      [col]
+    )
+    if (Array.isArray(cols) && cols.length > 0) return
+    await pool.query(`ALTER TABLE users ADD COLUMN ${ddl}`)
   }
+  await ensureUserColumn('password_hash', 'password_hash VARCHAR(255) NULL')
+  await ensureUserColumn('date_of_birth', 'date_of_birth DATE NULL')
 }
 
 async function listPollTargets() {
@@ -1326,25 +1329,38 @@ function requireAuth(req, res, next) {
 }
 
 // ── POST /auth/google ─────────────────────────────────────────────────────────
+// Verifies the Google ID token.
+// - Existing user → generates & emails OTP → { requiresOtp: true, isNewUser: false, email }
+// - New user      → does NOT create account → { requiresOtp: false, isNewUser: true, email, name, googleSub }
 app.post('/auth/google', async (req, res) => {
   const { idToken } = req.body ?? {}
   if (!idToken) return res.status(400).json({ message: 'idToken is required.' })
   try {
-    const ticket  = await googleClient.verifyIdToken({
+    const ticket = await googleClient.verifyIdToken({
       idToken,
       audience: process.env.GOOGLE_CLIENT_ID,
     })
-    const payload  = ticket.getPayload()
-    const email    = payload.email
-    const name     = payload.name || payload.email
-    const sub      = payload.sub
+    const payload   = ticket.getPayload()
+    const email     = payload.email
+    const googleName = payload.name || payload.email
+    const sub       = payload.sub
 
-    // Upsert user
+    // Check if user already exists
+    const [rows] = await pool.query(
+      'SELECT id, name FROM users WHERE email = ? LIMIT 1',
+      [email],
+    )
+    const existing = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
+
+    if (!existing) {
+      // New user — tell the frontend to collect profile info first
+      return res.json({ requiresOtp: false, isNewUser: true, email, name: googleName, googleSub: sub })
+    }
+
+    // Existing user — keep google_sub up to date, then send OTP
     await pool.query(
-      `INSERT INTO users (email, name, google_sub)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE name = VALUES(name), google_sub = VALUES(google_sub)`,
-      [email, name, sub],
+      'UPDATE users SET google_sub = ? WHERE email = ?',
+      [sub, email],
     )
 
     const otp    = generateOtp()
@@ -1353,88 +1369,75 @@ app.post('/auth/google', async (req, res) => {
       'UPDATE users SET otp_code = ?, otp_expiry = ? WHERE email = ?',
       [otp, expiry, email],
     )
-
     await sendOtpEmail(email, otp)
-    return res.json({ requiresOtp: true, email })
+    return res.json({ requiresOtp: true, isNewUser: false, email })
   } catch (err) {
     console.error('[auth/google]', err.message)
     return res.status(400).json({ message: err.message || 'Google token verification failed.' })
   }
 })
 
-// ── POST /auth/signup ─────────────────────────────────────────────────────────
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
-app.post('/auth/signup', async (req, res) => {
-  const { name, email, password } = req.body ?? {}
-  const cleanName  = typeof name === 'string' ? name.trim() : ''
+// ── POST /auth/google/complete ────────────────────────────────────────────────
+// Called after a new Google user submits their profile info.
+// Creates the user record, then sends OTP.
+app.post('/auth/google/complete', async (req, res) => {
+  const { email, name, dateOfBirth, googleSub } = req.body ?? {}
   const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
+  const cleanName  = typeof name  === 'string' ? name.trim()  : ''
 
-  if (!cleanName)                    return res.status(400).json({ message: 'Name is required.' })
-  if (!EMAIL_RE.test(cleanEmail))    return res.status(400).json({ message: 'Valid email is required.' })
-  if (typeof password !== 'string' || password.length < 8) {
-    return res.status(400).json({ message: 'Password must be at least 8 characters.' })
-  }
+  if (!cleanEmail) return res.status(400).json({ message: 'email is required.' })
+  if (!cleanName)  return res.status(400).json({ message: 'name is required.' })
 
   try {
-    const [rows] = await pool.query(
-      'SELECT id, password_hash FROM users WHERE email = ? LIMIT 1',
-      [cleanEmail],
+    // Upsert user with profile info
+    await pool.query(
+      `INSERT INTO users (email, name, google_sub, date_of_birth)
+       VALUES (?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         name         = VALUES(name),
+         google_sub   = VALUES(google_sub),
+         date_of_birth = COALESCE(VALUES(date_of_birth), date_of_birth)`,
+      [cleanEmail, cleanName, googleSub || null, dateOfBirth || null],
     )
-    const existing = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
-    if (existing && existing.password_hash) {
-      return res.status(409).json({ message: 'Email already registered.' })
-    }
 
-    const hash = await bcrypt.hash(password, 10)
-    if (existing) {
-      // Auto-link: Google-only user adding a password.
-      await pool.query(
-        'UPDATE users SET name = ?, password_hash = ? WHERE email = ?',
-        [cleanName, hash, cleanEmail],
-      )
-    } else {
-      await pool.query(
-        'INSERT INTO users (email, name, password_hash) VALUES (?, ?, ?)',
-        [cleanEmail, cleanName, hash],
-      )
-    }
-
-    const token = jwt.sign({ email: cleanEmail, name: cleanName }, JWT_SECRET, { expiresIn: '7d' })
-    return res.json({ token, email: cleanEmail, name: cleanName })
+    const otp    = generateOtp()
+    const expiry = Date.now() + OTP_EXPIRY_MS
+    await pool.query(
+      'UPDATE users SET otp_code = ?, otp_expiry = ? WHERE email = ?',
+      [otp, expiry, cleanEmail],
+    )
+    await sendOtpEmail(cleanEmail, otp)
+    return res.json({ requiresOtp: true, email: cleanEmail })
   } catch (err) {
-    console.error('[auth/signup]', err.message)
-    return res.status(500).json({ message: 'Sign-up failed.' })
+    console.error('[auth/google/complete]', err.message)
+    return res.status(500).json({ message: 'Profile completion failed.' })
   }
 })
 
-// ── POST /auth/login ──────────────────────────────────────────────────────────
-app.post('/auth/login', async (req, res) => {
-  const { email, password } = req.body ?? {}
+// ── POST /auth/resend-otp ─────────────────────────────────────────────────────
+// Regenerates and resends an OTP for any existing user (used by the MFA screen).
+app.post('/auth/resend-otp', async (req, res) => {
+  const { email } = req.body ?? {}
   const cleanEmail = typeof email === 'string' ? email.trim().toLowerCase() : ''
-  if (!cleanEmail || typeof password !== 'string' || !password) {
-    return res.status(400).json({ message: 'Email and password are required.' })
+  if (!cleanEmail) return res.status(400).json({ message: 'email is required.' })
+
+  const [rows] = await pool.query('SELECT id FROM users WHERE email = ? LIMIT 1', [cleanEmail])
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return res.status(404).json({ message: 'No account found for this email.' })
   }
 
   try {
-    const [rows] = await pool.query(
-      'SELECT name, password_hash FROM users WHERE email = ? LIMIT 1',
-      [cleanEmail],
+    const otp    = generateOtp()
+    const expiry = Date.now() + OTP_EXPIRY_MS
+    await pool.query(
+      'UPDATE users SET otp_code = ?, otp_expiry = ? WHERE email = ?',
+      [otp, expiry, cleanEmail],
     )
-    const user = Array.isArray(rows) && rows.length > 0 ? rows[0] : null
-    if (!user || !user.password_hash) {
-      return res.status(401).json({ message: 'Invalid email or password.' })
-    }
-    const ok = await bcrypt.compare(password, user.password_hash)
-    if (!ok) {
-      return res.status(401).json({ message: 'Invalid email or password.' })
-    }
-
-    const token = jwt.sign({ email: cleanEmail, name: user.name }, JWT_SECRET, { expiresIn: '7d' })
-    return res.json({ token, email: cleanEmail, name: user.name })
+    await sendOtpEmail(cleanEmail, otp)
+    return res.json({ ok: true })
   } catch (err) {
-    console.error('[auth/login]', err.message)
-    return res.status(500).json({ message: 'Login failed.' })
+    console.error('[auth/resend-otp]', err.message)
+    return res.status(500).json({ message: 'Failed to resend OTP.' })
   }
 })
 
@@ -1472,21 +1475,19 @@ app.get('/api/settings', requireAuth, async (req, res) => {
     [req.user.email],
   )
   if (!Array.isArray(rows) || rows.length === 0) {
-    return res.json({ sosAlerts: true, geofenceAlerts: true })
+    return res.json({ geofenceAlerts: true })
   }
   const s = rows[0].settings
   const parsed = (typeof s === 'string' ? JSON.parse(s) : s) || {}
   return res.json({
-    sosAlerts:       parsed.sosAlerts       !== false,
     geofenceAlerts:  parsed.geofenceAlerts  !== false,
   })
 })
 
 // ── PUT /api/settings ─────────────────────────────────────────────────────────
 app.put('/api/settings', requireAuth, async (req, res) => {
-  const { sosAlerts, geofenceAlerts } = req.body ?? {}
+  const { geofenceAlerts } = req.body ?? {}
   const s = JSON.stringify({
-    sosAlerts:      sosAlerts      !== false,
     geofenceAlerts: geofenceAlerts !== false,
   })
   await pool.query('UPDATE users SET settings = ? WHERE email = ?', [s, req.user.email])

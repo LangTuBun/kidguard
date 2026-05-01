@@ -4,7 +4,7 @@ import NotificationCard from '../../components/NotificationCard'
 import Button from '../../components/Button'
 import { loadChildrenConfig } from '../../utils/childrenConfig'
 
-const filters = ['ALL', 'GEOFENCE', 'SOS']
+const filters = ['ALL', 'GEOFENCE']
 
 export default function Notifications() {
   const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
@@ -141,7 +141,6 @@ export default function Notifications() {
           </div>
           {[
             { label: 'UNREAD', value: unreadCount, color: 'var(--slab-red)' },
-            { label: 'SOS ALERTS', value: alerts.filter(n => n.type === 'sos').length, color: 'var(--slab-red)' },
             { label: 'GEOFENCE', value: alerts.filter(n => n.type === 'geofence').length, color: 'var(--slab-blue)' },
             { label: 'TOTAL ACTIVE', value: alerts.length, color: 'var(--text-primary)' },
           ].map(stat => (

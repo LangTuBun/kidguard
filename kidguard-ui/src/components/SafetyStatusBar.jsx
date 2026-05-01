@@ -1,9 +1,9 @@
 import { RefreshCw } from 'lucide-react'
 
 /** Derives a three-way status from live telemetry. Pure — no side-effects. */
-export function deriveSafetyStatus({ online, geofenceViolated, hasSOS }) {
+export function deriveSafetyStatus({ online, geofenceViolated }) {
   if (!online) return 'unknown'
-  if (geofenceViolated || hasSOS) return 'danger'
+  if (geofenceViolated) return 'danger'
   return 'safe'
 }
 

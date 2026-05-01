@@ -20,7 +20,7 @@ export default function Splash() {
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <Button variant="ghost" onClick={() => navigate('/login')}>SIGN IN</Button>
-          <Button variant="primary" onClick={() => navigate('/register')}>GET STARTED →</Button>
+          <Button variant="primary" onClick={() => navigate('/login')}>GET STARTED →</Button>
         </div>
       </div>
 
@@ -48,7 +48,7 @@ export default function Splash() {
               Real-time location monitoring for parents who care. Know your child is safe — wherever they are.
             </p>
             <div style={{ display: 'flex', gap: '12px' }}>
-              <Button variant="primary" onClick={() => navigate('/register')}>GET STARTED →</Button>
+              <Button variant="primary" onClick={() => navigate('/login')}>GET STARTED →</Button>
               <Button variant="ghost" onClick={() => navigate('/login')}>SIGN IN</Button>
             </div>
           </div>
@@ -56,9 +56,8 @@ export default function Splash() {
           {/* Right: feature callouts */}
           <div style={{ width: '280px', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {[
-              { label: 'LIVE TRACKING', desc: 'Real-time GPS updates every 30 seconds', color: 'var(--slab-blue)' },
-              { label: 'SAFE ZONES', desc: 'Set boundaries and get instant breach alerts', color: 'var(--slab-green)' },
-              { label: 'SOS ALERT', desc: 'One-tap emergency button for your child', color: 'var(--slab-red)' },
+              { label: 'REAL-TIME TRACKING', desc: 'See their location live on a map', color: 'var(--slab-blue)' },
+              { label: 'SAFE ZONES', desc: 'Get alerts when they leave an area', color: 'var(--slab-orange)' },
             ].map(f => (
               <div key={f.label} style={{ background: '#fff', border: '2px solid var(--border)', padding: '16px', boxShadow: '3px 3px 0 #0D0D0D' }}>
                 <span style={{ background: f.color, color: '#fff', fontSize: '10px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', padding: '2px 6px', fontFamily: 'var(--font-body)' }}>

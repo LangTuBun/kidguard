@@ -59,7 +59,7 @@ export default function Settings() {
   const navigate = useNavigate()
   const user = getUser() || { name: 'Parent', email: '—' }
 
-  const [prefs, setPrefs]     = useState({ sosAlerts: true, geofenceAlerts: true })
+  const [prefs, setPrefs]     = useState({ geofenceAlerts: true })
   const [saving, setSaving]   = useState(false)
   const [loadErr, setLoadErr] = useState(null)
   const [saved,  setSaved]    = useState(false)
@@ -70,7 +70,7 @@ export default function Settings() {
     fetch(`${API_BASE}/api/settings`, { headers: authHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data) setPrefs({ sosAlerts: !!data.sosAlerts, geofenceAlerts: !!data.geofenceAlerts })
+        if (data) setPrefs({ geofenceAlerts: !!data.geofenceAlerts })
       })
       .catch(() => setLoadErr('Could not load settings.'))
   }, [])
@@ -195,30 +195,6 @@ export default function Settings() {
           <div>
             <SectionLabel icon={Bell} label="Notifications" />
             <Card padding="0">
-              {/* SOS Alerts toggle */}
-              <div style={{
-                padding: '0 20px', height: '64px',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                borderBottom: '2px solid var(--border)',
-              }}>
-                <div>
-                  <div style={{
-                    fontSize: '13px', fontWeight: 600, textTransform: 'uppercase',
-                    letterSpacing: '0.04em', fontFamily: 'var(--font-body)',
-                  }}>
-                    SOS Alerts
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--text-muted)', fontFamily: 'var(--font-body)', marginTop: '2px' }}>
-                    Notify when child triggers SOS
-                  </div>
-                </div>
-                <Toggle
-                  id="toggle-sos"
-                  value={prefs.sosAlerts}
-                  onChange={(val) => handleToggle('sosAlerts', val)}
-                />
-              </div>
-
               {/* Geofence Alerts toggle */}
               <div style={{
                 padding: '0 20px', height: '64px',
