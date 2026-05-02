@@ -13,13 +13,24 @@ import { authHeaders } from '../../utils/auth'
 
 const API_BASE = 'http://localhost:8080'
 const AUTO_REFRESH_MS = 30_000
+const CHILD_DISPLAY_NAME_OVERRIDES = {
+  'cb184099-9a5c-4a47-a5cc-d712bff00f7a': 'Khang',
+  'ec93886c-58ff-4d6a-863e-0ced0d159a77': 'Dat',
+}
+
+function displayNameForChild(child) {
+  const childId = child?.childId || child?.id
+  return CHILD_DISPLAY_NAME_OVERRIDES[childId] || child?.displayName || child?.name
+}
 
 // Fetch the full list of registered children
 async function fetchChildren() {
   const res = await fetch(`${API_BASE}/api/children`)
   if (!res.ok) return []
   const rows = await res.json()
-  return Array.isArray(rows) ? rows.filter((c) => c.active) : []
+  return Array.isArray(rows)
+    ? rows.filter((c) => c.active).map((c) => ({ ...c, displayName: displayNameForChild(c) }))
+    : []
 }
 
 // Fetch per-child data (dashboard + zones) in parallel
@@ -29,7 +40,15 @@ async function fetchChildData(childId) {
     fetch(`${API_BASE}/api/safezones/${childId}`).then((r) => r.ok ? r.json() : []),
   ])
   return {
-    dashboard: dashRes.status === 'fulfilled' ? dashRes.value : null,
+    dashboard: dashRes.status === 'fulfilled' && dashRes.value?.child
+      ? {
+          ...dashRes.value,
+          child: {
+            ...dashRes.value.child,
+            name: displayNameForChild(dashRes.value.child),
+          },
+        }
+      : (dashRes.status === 'fulfilled' ? dashRes.value : null),
     zones:     zonesRes.status === 'fulfilled' ? (zonesRes.value ?? []) : [],
   }
 }

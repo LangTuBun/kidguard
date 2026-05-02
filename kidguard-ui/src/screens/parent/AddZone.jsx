@@ -33,6 +33,13 @@ export default function AddZone() {
   const [loading, setLoading] = useState(!!zoneId)
   const [children, setChildren] = useState(() => loadChildrenConfig().filter((x) => x.active !== false))
   const [childLocations, setChildLocations] = useState([])
+  const selectedChildLocations = selectedChildIds.length > 0
+    ? childLocations.filter((l) => selectedChildIds.includes(l.childId))
+    : []
+  const selectedChildFocusKey = selectedChildLocations
+    .map((l) => l.childId)
+    .sort()
+    .join('|')
 
   useEffect(() => {
     if (!zoneId) return
@@ -228,8 +235,9 @@ export default function AddZone() {
             onCornerAChange={setCornerA}
             onCornerCChange={setCornerC}
             childLocations={selectedChildIds.length > 0
-              ? childLocations.filter((l) => selectedChildIds.includes(l.childId))
+              ? selectedChildLocations
               : []}
+            childFocusKey={selectedChildFocusKey}
             autoCenterOnChild={!zoneId && !centerPoint && !cornerA}
           />
           {/* Floating hint */}

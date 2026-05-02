@@ -54,6 +54,20 @@ function parseCsvIds(raw) {
     .filter(Boolean)
 }
 
+const CHILD_DISPLAY_NAME_OVERRIDES = new Map([
+  ['cb184099-9a5c-4a47-a5cc-d712bff00f7a', 'Khang'],
+  ['ec93886c-58ff-4d6a-863e-0ced0d159a77', 'Dat'],
+])
+
+function childDisplayNameOverride(childId) {
+  return CHILD_DISPLAY_NAME_OVERRIDES.get(String(childId ?? '').trim()) || null
+}
+
+function defaultChildDisplayName(childId) {
+  const safeChildId = String(childId ?? '').trim()
+  return childDisplayNameOverride(safeChildId) || `Child ${safeChildId.slice(0, 6)}`
+}
+
 /**
  * Some clients (e.g. Shortcuts) send lat/lng as huge integers. Try lat/10^a, lng/10^b
  * until WGS84 fits. Same power for both (e.g. /1e14) rarely works for lng vs lat magnitude.
@@ -297,40 +311,42 @@ async function ensureSchema() {
 }
 
 async function listPollTargets() {
-  const [rows] = await pool.query(
-    `SELECT child_id, thing_id, arduino_client_id, arduino_client_secret
-     FROM children
-     WHERE active = TRUE`,
-  )
-
-  const targets = []
-  if (Array.isArray(rows) && rows.length > 0) {
-    for (const row of rows) {
-      const childId = typeof row.child_id === 'string' ? row.child_id : ''
-      const thingId = typeof row.thing_id === 'string' && row.thing_id ? row.thing_id : childId
-      const clientId = row.arduino_client_id
-      const clientSecret = row.arduino_client_secret
-      if (childId && thingId) targets.push({ childId, thingId, clientId, clientSecret })
-    }
-  }
-
-  if (targets.length > 0) return targets
-
   const envChildIds = parseCsvIds(process.env.ARDUINO_CHILD_IDS || process.env.ARDUINO_CHILD_ID || '')
   const envThingIds = parseCsvIds(process.env.ARDUINO_THING_IDS || process.env.ARDUINO_THING_ID || '')
   const envClientIds = parseCsvIds(process.env.ARDUINO_CLIENT_IDS || '')
   const envClientSecrets = parseCsvIds(process.env.ARDUINO_CLIENT_SECRETS || '')
+  const targetsByChildId = new Map()
 
-  const fallbackTargets = []
   const max = Math.max(envChildIds.length, envThingIds.length)
   for (let i = 0; i < max; i += 1) {
     const childId = envChildIds[i] || envThingIds[i]
     const thingId = envThingIds[i] || envChildIds[i]
     const clientId = envClientIds[i]
     const clientSecret = envClientSecrets[i]
-    if (childId && thingId) fallbackTargets.push({ childId, thingId, clientId, clientSecret })
+    if (childId && thingId) {
+      targetsByChildId.set(childId, { childId, thingId, clientId, clientSecret })
+    }
   }
-  return fallbackTargets
+
+  const [rows] = await pool.query(
+    `SELECT child_id, thing_id, arduino_client_id, arduino_client_secret
+     FROM children
+     WHERE active = TRUE`,
+  )
+
+  if (Array.isArray(rows) && rows.length > 0) {
+    for (const row of rows) {
+      const childId = typeof row.child_id === 'string' ? row.child_id : ''
+      if (!childId) continue
+      const envTarget = targetsByChildId.get(childId) || {}
+      const thingId = (typeof row.thing_id === 'string' && row.thing_id) || envTarget.thingId || childId
+      const clientId = row.arduino_client_id || envTarget.clientId
+      const clientSecret = row.arduino_client_secret || envTarget.clientSecret
+      if (thingId) targetsByChildId.set(childId, { childId, thingId, clientId, clientSecret })
+    }
+  }
+
+  return [...targetsByChildId.values()]
 }
 
 async function pickZoneStatusForChild(childId, lat, lng) {
@@ -435,7 +451,7 @@ app.post('/api/children', async (req, res) => {
   }
   const safeDisplayName = typeof displayName === 'string' && displayName.trim()
     ? displayName.trim()
-    : `Child ${childId.slice(0, 6)}`
+    : defaultChildDisplayName(childId)
   const safeThingId = typeof thingId === 'string' && thingId.trim() ? thingId.trim() : childId
   const safeClientId = typeof arduinoClientId === 'string' && arduinoClientId.trim() ? arduinoClientId.trim() : null
   const safeClientSecret = typeof arduinoClientSecret === 'string' && arduinoClientSecret.trim() ? arduinoClientSecret.trim() : null
@@ -922,7 +938,7 @@ function startArduinoCloudPollScheduler() {
   setInterval(run, pollMs)
 
   const label = pollMs >= 60_000 ? `${Math.round(pollMs / 60_000)} min` : `${Math.round(pollMs / 1000)} s`
-  console.log(`Arduino Cloud GPS poll every ${label} (targets from children table or env fallback)`)
+  console.log(`Arduino Cloud GPS poll every ${label} (targets from children table + env)`)
 }
 
 async function recordZoneTransitions({ childId, zoneStates, lat, lng, occurredAt }) {
@@ -965,13 +981,18 @@ async function recordZoneTransitions({ childId, zoneStates, lat, lng, occurredAt
 }
 
 async function upsertGpsLocation({ childId, lat, lng, timestamp, battery }) {
+  const displayName = defaultChildDisplayName(childId)
   await pool.query(
     `INSERT INTO children (child_id, display_name, thing_id, active)
      VALUES (?, ?, ?, TRUE)
      ON DUPLICATE KEY UPDATE
        thing_id = COALESCE(thing_id, VALUES(thing_id))`,
-    [childId, `Child ${String(childId).slice(0, 6)}`, childId],
+    [childId, displayName, childId],
   )
+  const overrideDisplayName = childDisplayNameOverride(childId)
+  if (overrideDisplayName) {
+    await pool.query('UPDATE children SET display_name = ? WHERE child_id = ?', [overrideDisplayName, childId])
+  }
 
   const zoneStatus = await pickZoneStatusForChild(childId, lat, lng)
   const geofenceViolated = zoneStatus.geofenceViolated

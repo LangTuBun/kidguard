@@ -146,6 +146,15 @@ CREATE TABLE `zone_events` (
 
 USE clms;
 
+INSERT INTO children (child_id, display_name, thing_id, active)
+VALUES
+  ('cb184099-9a5c-4a47-a5cc-d712bff00f7a', 'Khang', 'cb184099-9a5c-4a47-a5cc-d712bff00f7a', 1),
+  ('ec93886c-58ff-4d6a-863e-0ced0d159a77', 'Dat', 'ec93886c-58ff-4d6a-863e-0ced0d159a77', 1)
+ON DUPLICATE KEY UPDATE
+  display_name = VALUES(display_name),
+  thing_id = VALUES(thing_id),
+  active = VALUES(active);
+
 INSERT INTO geofence (child_id, center_lat, center_lng, radius_meters)
 VALUES ('cb184099-9a5c-4a47-a5cc-d712bff00f7a', 10.928, 106.702, 800)
 ON DUPLICATE KEY UPDATE

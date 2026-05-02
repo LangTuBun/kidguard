@@ -41,21 +41,23 @@ const childLocationIcon = new L.DivIcon({
   iconAnchor: [9, 9],
 })
 
-function ChildLocationLayer({ childLocations, autoCenter }) {
+function ChildLocationLayer({ childLocations, autoCenter, focusKey }) {
   const map = useMap()
-  const centeredRef = useRef(false)
+  const lastFocusKeyRef = useRef('')
 
   useEffect(() => {
-    if (!autoCenter || centeredRef.current) return
+    if (!autoCenter) return
     if (!Array.isArray(childLocations) || childLocations.length === 0) return
+    if (!focusKey || focusKey === lastFocusKeyRef.current) return
+
     if (childLocations.length === 1) {
-      map.setView([childLocations[0].lat, childLocations[0].lng], 16, { animate: true })
+      map.flyTo([childLocations[0].lat, childLocations[0].lng], 16, { animate: true, duration: 0.7 })
     } else {
       const bounds = L.latLngBounds(childLocations.map((l) => [l.lat, l.lng]))
-      map.fitBounds(bounds, { padding: [50, 50], animate: true, maxZoom: 16 })
+      map.flyToBounds(bounds, { padding: [70, 70], animate: true, duration: 0.7, maxZoom: 16 })
     }
-    centeredRef.current = true
-  }, [map, childLocations, autoCenter])
+    lastFocusKeyRef.current = focusKey
+  }, [map, childLocations, autoCenter, focusKey])
 
   if (!Array.isArray(childLocations) || childLocations.length === 0) return null
 
@@ -255,6 +257,7 @@ export default function ZonePickerMap({
   mapCenter = [10.928, 106.702],
   childLocations = [],
   autoCenterOnChild = false,
+  childFocusKey = '',
 }) {
   const radius =
     centerPoint && edgePoint
@@ -269,9 +272,9 @@ export default function ZonePickerMap({
       />
       <MapSearch />
       <ChildLocationLayer
-        key={(childLocations[0]?.childId) || 'none'}
         childLocations={childLocations}
         autoCenter={autoCenterOnChild}
+        focusKey={childFocusKey}
       />
       <ClickHandler
         mode={mode}

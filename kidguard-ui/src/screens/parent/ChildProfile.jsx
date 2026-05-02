@@ -5,12 +5,12 @@ import Card from '../../components/Card'
 import Input from '../../components/Input'
 import StatusChip from '../../components/StatusChip'
 import Button from '../../components/Button'
-import { useMemo, useState } from 'react'
-import { loadChildrenConfig, saveChildrenConfig } from '../../utils/childrenConfig'
+import { useEffect, useMemo, useState } from 'react'
+import { loadChildrenConfig, mergeChildren, saveChildrenConfig } from '../../utils/childrenConfig'
 
 export default function ChildProfile() {
   const navigate = useNavigate()
-  const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
+  const apiBase = import.meta.env.VITE_BACKEND_API_URL || import.meta.env.VITE_API_BASE || 'http://localhost:8080'
   const initialChildren = useMemo(() => loadChildrenConfig(), [])
   const [children, setChildren] = useState(initialChildren)
   const [sharing, setSharing] = useState(true)
@@ -23,6 +23,32 @@ export default function ChildProfile() {
   
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadRemoteChildren() {
+      try {
+        const res = await fetch(`${apiBase}/api/children`)
+        if (!res.ok) return
+        const rows = await res.json().catch(() => [])
+        if (cancelled || !Array.isArray(rows)) return
+
+        setChildren((current) => {
+          const merged = mergeChildren(current, rows)
+          saveChildrenConfig(merged)
+          return merged
+        })
+      } catch {
+        // Keep the locally cached children when the backend is unavailable.
+      }
+    }
+
+    loadRemoteChildren()
+    return () => {
+      cancelled = true
+    }
+  }, [apiBase])
 
   async function addChild() {
     setError('')
