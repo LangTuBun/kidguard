@@ -238,6 +238,22 @@ async function ensureSchema() {
     )
   `)
 
+  // Manual SOS alerts triggered by the child. Stamped with the child's last known
+  // location at insert time so historical entries retain a coordinate snapshot.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sos_events (
+      id          BIGINT AUTO_INCREMENT PRIMARY KEY,
+      child_id    VARCHAR(128) NOT NULL,
+      occurred_at BIGINT       NOT NULL,
+      lat         DOUBLE       NULL,
+      lng         DOUBLE       NULL,
+      message     VARCHAR(255) NULL,
+      created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_sos_child_time (child_id, occurred_at DESC),
+      CONSTRAINT fk_sos_child FOREIGN KEY (child_id) REFERENCES children(child_id) ON DELETE CASCADE
+    )
+  `)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS geofence (
       id BIGINT AUTO_INCREMENT PRIMARY KEY,
@@ -1387,6 +1403,66 @@ app.get('/api/zone-events', async (req, res) => {
     params.push(childIds)
   }
   sql += ` ORDER BY e.occurred_at DESC, e.id DESC LIMIT ?`
+  params.push(limit)
+
+  const [rows] = await pool.query(sql, params)
+  return res.json(rows)
+})
+
+app.post('/api/sos', async (req, res) => {
+  const childId = typeof req.body?.childId === 'string' ? req.body.childId.trim() : ''
+  const rawMessage = typeof req.body?.message === 'string' ? req.body.message.trim() : ''
+  const message = rawMessage ? rawMessage.slice(0, 255) : null
+  if (!childId) return res.status(400).json({ message: 'childId is required.' })
+
+  const [childRows] = await pool.query(
+    'SELECT child_id FROM children WHERE child_id = ? LIMIT 1',
+    [childId],
+  )
+  if (!Array.isArray(childRows) || childRows.length === 0) {
+    return res.status(404).json({ message: 'Unknown childId.' })
+  }
+
+  const [latestRows] = await pool.query(
+    'SELECT lat, lng FROM child_latest_location WHERE child_id = ? LIMIT 1',
+    [childId],
+  )
+  const latest = (Array.isArray(latestRows) && latestRows[0]) || {}
+  const lat = Number.isFinite(latest.lat) ? latest.lat : null
+  const lng = Number.isFinite(latest.lng) ? latest.lng : null
+
+  const occurredAt = Date.now()
+  const [result] = await pool.query(
+    'INSERT INTO sos_events (child_id, occurred_at, lat, lng, message) VALUES (?, ?, ?, ?, ?)',
+    [childId, occurredAt, lat, lng, message],
+  )
+  return res.status(201).json({
+    id: result.insertId,
+    childId,
+    occurredAt,
+    lat,
+    lng,
+    message,
+  })
+})
+
+app.get('/api/sos', async (req, res) => {
+  const idsRaw = typeof req.query.childIds === 'string' ? req.query.childIds : ''
+  const childIds = idsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 50))
+
+  let sql = `
+    SELECT s.id, s.child_id AS childId, c.display_name AS childDisplayName,
+           s.occurred_at AS occurredAt, s.lat, s.lng, s.message
+    FROM sos_events s
+    INNER JOIN children c ON c.child_id = s.child_id
+  `
+  const params = []
+  if (childIds.length > 0) {
+    sql += ` WHERE s.child_id IN (?)`
+    params.push(childIds)
+  }
+  sql += ` ORDER BY s.occurred_at DESC, s.id DESC LIMIT ?`
   params.push(limit)
 
   const [rows] = await pool.query(sql, params)

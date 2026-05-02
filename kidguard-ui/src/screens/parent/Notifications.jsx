@@ -4,7 +4,7 @@ import NotificationCard from '../../components/NotificationCard'
 import Button from '../../components/Button'
 import { loadChildrenConfig } from '../../utils/childrenConfig'
 
-const filters = ['ALL', 'GEOFENCE']
+const filters = ['ALL', 'GEOFENCE', 'SOS']
 
 export default function Notifications() {
   const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
@@ -23,9 +23,10 @@ export default function Notifications() {
         return
       }
       const idsParam = encodeURIComponent(children.map((c) => c.childId).join(','))
-      const [latestRes, eventsRes] = await Promise.all([
+      const [latestRes, eventsRes, sosRes] = await Promise.all([
         fetch(`${apiBase}/api/location/latest?childIds=${idsParam}`),
         fetch(`${apiBase}/api/zone-events?childIds=${idsParam}&limit=100`),
+        fetch(`${apiBase}/api/sos?childIds=${idsParam}&limit=100`),
       ])
       if (!eventsRes.ok) {
         const data = await eventsRes.json().catch(() => ({}))
@@ -33,6 +34,7 @@ export default function Notifications() {
       }
       const eventRows = await eventsRes.json()
       const latestRows = latestRes.ok ? await latestRes.json().catch(() => []) : []
+      const sosRows = sosRes.ok ? await sosRes.json().catch(() => []) : []
       const now = Date.now()
       const byId = new Map(children.map((c) => [c.childId, c]))
 
@@ -72,10 +74,30 @@ export default function Notifications() {
           timestamp: Number.isFinite(ts) ? new Date(ts).toLocaleString() : 'Unknown time',
           ageMin,
           read: false,
+          sortKey: Number.isFinite(ts) ? ts : 0,
         }
       })
 
-      setAlerts([...activeAlerts, ...events])
+      const sosAlerts = (Array.isArray(sosRows) ? sosRows : []).map((row) => {
+        const child = byId.get(row.childId)
+        const ts = Number(row.occurredAt)
+        const ageMin = Number.isFinite(ts) ? Math.max(0, Math.floor((now - ts) / 60000)) : null
+        return {
+          id: `sos-${row.id}`,
+          type: 'sos',
+          isActive: false,
+          isArrival: false,
+          childName: child?.displayName || row.childDisplayName || row.childId,
+          message: row.message ? `triggered SOS — ${row.message}` : 'triggered SOS',
+          timestamp: Number.isFinite(ts) ? new Date(ts).toLocaleString() : 'Unknown time',
+          ageMin,
+          read: false,
+          sortKey: Number.isFinite(ts) ? ts : 0,
+        }
+      })
+
+      const merged = [...events, ...sosAlerts].sort((a, b) => b.sortKey - a.sortKey)
+      setAlerts([...activeAlerts, ...merged])
     } catch (e) {
       setError(e.message || 'Cannot load alerts.')
       setAlerts([])
@@ -169,6 +191,7 @@ export default function Notifications() {
           {[
             { label: 'UNREAD', value: unreadCount, color: 'var(--slab-red)' },
             { label: 'GEOFENCE', value: alerts.filter(n => n.type === 'geofence').length, color: 'var(--slab-blue)' },
+            { label: 'SOS', value: alerts.filter(n => n.type === 'sos').length, color: 'var(--slab-red)' },
             { label: 'TOTAL ACTIVE', value: alerts.length, color: 'var(--text-primary)' },
           ].map(stat => (
             <div key={stat.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: '1px solid var(--bg-base)' }}>
