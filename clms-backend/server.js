@@ -329,15 +329,18 @@ async function listPollTargets() {
   }
 
   const [rows] = await pool.query(
-    `SELECT child_id, thing_id, arduino_client_id, arduino_client_secret
-     FROM children
-     WHERE active = TRUE`,
+    `SELECT child_id, thing_id, arduino_client_id, arduino_client_secret, active
+     FROM children`,
   )
 
   if (Array.isArray(rows) && rows.length > 0) {
     for (const row of rows) {
       const childId = typeof row.child_id === 'string' ? row.child_id : ''
       if (!childId) continue
+      if (!row.active) {
+        targetsByChildId.delete(childId)
+        continue
+      }
       const envTarget = targetsByChildId.get(childId) || {}
       const thingId = (typeof row.thing_id === 'string' && row.thing_id) || envTarget.thingId || childId
       const clientId = row.arduino_client_id || envTarget.clientId
@@ -1466,15 +1469,30 @@ app.get('/api/dashboard/:childId', async (req, res) => {
 
 app.get('/api/location/history/:childId', async (req, res) => {
   const { childId } = req.params
+  const from = Number(req.query.from)
+  const to = Number(req.query.to)
+  const limit = Math.max(1, Math.min(20000, Number(req.query.limit) || 1000))
+  const filters = ['child_id = ?']
+  const params = [childId]
+  if (Number.isFinite(from)) {
+    filters.push('captured_at >= ?')
+    params.push(Math.trunc(from))
+  }
+  if (Number.isFinite(to)) {
+    filters.push('captured_at < ?')
+    params.push(Math.trunc(to))
+  }
+  params.push(limit)
+
   const [rows] = await pool.query(
     `SELECT child_id AS childId, lat, lng, captured_at AS timestamp,
             geofence_violated AS geofenceViolated,
             distance_from_center_meters AS distanceFromCenterMeters
      FROM location_history
-     WHERE child_id = ?
+     WHERE ${filters.join(' AND ')}
      ORDER BY captured_at DESC
-     LIMIT 100`,
-    [childId],
+     LIMIT ?`,
+    params,
   )
   return res.json(rows)
 })

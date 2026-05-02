@@ -11,7 +11,7 @@ import { loadChildrenConfig, mergeChildren, saveChildrenConfig } from '../../uti
 export default function ChildProfile() {
   const navigate = useNavigate()
   const apiBase = import.meta.env.VITE_BACKEND_API_URL || import.meta.env.VITE_API_BASE || 'http://localhost:8080'
-  const initialChildren = useMemo(() => loadChildrenConfig(), [])
+  const initialChildren = useMemo(() => loadChildrenConfig().filter((x) => x.active !== false), [])
   const [children, setChildren] = useState(initialChildren)
   const [sharing, setSharing] = useState(true)
   
@@ -35,7 +35,7 @@ export default function ChildProfile() {
         if (cancelled || !Array.isArray(rows)) return
 
         setChildren((current) => {
-          const merged = mergeChildren(current, rows)
+          const merged = mergeChildren(current, rows).filter((x) => x.active !== false)
           saveChildrenConfig(merged)
           return merged
         })
@@ -96,10 +96,27 @@ export default function ChildProfile() {
     }
   }
 
-  function removeChild(id) {
-     const next = children.filter(c => c.childId !== id)
-     setChildren(next)
-     saveChildrenConfig(next)
+  async function removeChild(id) {
+    setError('')
+    const previous = children
+    const next = children.filter((c) => c.childId !== id)
+    setChildren(next)
+    saveChildrenConfig(next)
+    try {
+      const res = await fetch(`${apiBase}/api/children/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: false }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.message || 'Cannot remove child.')
+      }
+    } catch (e) {
+      setChildren(previous)
+      saveChildrenConfig(previous)
+      setError(e.message || 'Cannot remove child.')
+    }
   }
 
   return (

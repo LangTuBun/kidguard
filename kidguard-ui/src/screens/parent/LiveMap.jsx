@@ -6,6 +6,12 @@ import Button from '../../components/Button'
 import MultiChildMap from '../../components/MultiChildMap'
 import { loadChildrenConfig, mergeChildren, saveChildrenConfig } from '../../utils/childrenConfig'
 
+function isActive(value) {
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') return value !== '0' && value.toLowerCase() !== 'false'
+  return value !== false
+}
+
 export default function LiveMap() {
   const navigate = useNavigate()
   const [locations, setLocations] = useState([])
@@ -72,7 +78,7 @@ export default function LiveMap() {
       if (zoneRes.ok) {
         const zoneRows = await zoneRes.json().catch(() => [])
         const grouped = (Array.isArray(zoneRows) ? zoneRows : [])
-          .filter((z) => z.active !== false)
+          .filter((z) => isActive(z.active))
           .reduce((acc, z) => {
             const key = (Array.isArray(z.childIds) && z.childIds[0]) || '_unassigned'
             if (!acc[key]) acc[key] = []

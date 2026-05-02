@@ -7,6 +7,13 @@ function parseIds(raw) {
     .filter(Boolean)
 }
 
+function normalizeActive(value) {
+  if (value === undefined || value === null) return true
+  if (typeof value === 'number') return value !== 0
+  if (typeof value === 'string') return value !== '0' && value.toLowerCase() !== 'false'
+  return value !== false
+}
+
 export function defaultChildrenFromEnv() {
   const ids = [
     ...parseIds(import.meta.env.VITE_CHILD_IDS),
@@ -35,9 +42,9 @@ export function loadChildrenConfig() {
           typeof x.displayName === 'string' && x.displayName.trim()
             ? x.displayName.trim()
             : `Child ${idx + 1}`,
-        active: x.active !== false,
+        active: normalizeActive(x.active),
       }))
-    return cleaned.length > 0 ? cleaned : defaultChildrenFromEnv()
+    return cleaned
   } catch {
     return defaultChildrenFromEnv()
   }
@@ -60,7 +67,7 @@ export function mergeChildren(localChildren, remoteChildren) {
       childId,
       thingId: (typeof row.thingId === 'string' && row.thingId.trim()) || prev.thingId || childId,
       displayName: (typeof row.displayName === 'string' && row.displayName.trim()) || prev.displayName || childId,
-      active: row.active !== false,
+      active: normalizeActive(row.active),
     })
   }
   return [...map.values()]

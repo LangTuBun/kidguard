@@ -12,6 +12,11 @@ const childIcon = (color = '#2A5BF5') =>
 
 const zoneColors = ['#2A5BF5', '#E8631A', '#1A8C4E', '#D92B2B']
 
+function zoneColor(zone, fallbackIndex = 0) {
+  const id = Number(zone?.id)
+  return zoneColors[(Number.isFinite(id) ? id : fallbackIndex) % zoneColors.length]
+}
+
 function FitBounds({ locations = [] }) {
   const map = useMap()
   const fittedRef = useRef(false)
@@ -124,7 +129,7 @@ export default function MultiChildMap({ locations = [], zonesByChild = {}, heigh
 
       {Object.entries(zonesByChild).flatMap(([childId, zones]) =>
         (Array.isArray(zones) ? zones : []).map((zone, idx) => {
-          const color = zoneColors[idx % zoneColors.length]
+          const color = zoneColor(zone, idx)
           if (
             zone.shapeType === 'rectangle'
             && Number.isFinite(zone.cornerALat)

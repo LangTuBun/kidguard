@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import WebLayout from '../../components/WebLayout'
 import StatusChip from '../../components/StatusChip'
 import Button from '../../components/Button'
-import { loadChildrenConfig } from '../../utils/childrenConfig'
+import { loadChildrenConfig, mergeChildren, saveChildrenConfig } from '../../utils/childrenConfig'
 import {
   buildStaysFromHistory,
   formatDurationMs,
@@ -52,11 +52,10 @@ function overlapDurationMs(startA, endA, startB, endB) {
 }
 
 export default function History() {
-  const apiBase = import.meta.env.VITE_BACKEND_API_URL || 'http://localhost:8080'
-  const children = useMemo(() => loadChildrenConfig().filter((c) => c.active !== false), [])
-  const [childId, setChildId] = useState(
-    children[0]?.childId || import.meta.env.VITE_CHILD_ID || 'cb184099-9a5c-4a47-a5cc-d712bff00f7a',
-  )
+  const apiBase = import.meta.env.VITE_BACKEND_API_URL || import.meta.env.VITE_API_BASE || 'http://localhost:8080'
+  const initialChildren = useMemo(() => loadChildrenConfig().filter((c) => c.active !== false), [])
+  const [children, setChildren] = useState(initialChildren)
+  const [childId, setChildId] = useState(initialChildren[0]?.childId || '')
 
   const [raw, setRaw] = useState([])
   const [loading, setLoading] = useState(true)
@@ -65,12 +64,37 @@ export default function History() {
   const [expandedKey, setExpandedKey] = useState(null)
 
   const dayTabs = useMemo(() => Array.from({ length: 7 }, (_, i) => dayTabMeta(i)), [])
+  const rangeStart = dayTabs[dayTabs.length - 1]?.start ?? startOfLocalDay(new Date())
+  const rangeEnd = (dayTabs[0]?.start ?? startOfLocalDay(new Date())) + 24 * 60 * 60 * 1000
+
+  const loadChildren = useCallback(async () => {
+    try {
+      const res = await fetch(`${apiBase}/api/children`)
+      if (!res.ok) return
+      const rows = await res.json().catch(() => [])
+      const merged = mergeChildren(loadChildrenConfig(), rows).filter((c) => c.active !== false)
+      setChildren(merged)
+      saveChildrenConfig(merged)
+      setChildId((current) => (merged.some((c) => c.childId === current) ? current : (merged[0]?.childId || '')))
+    } catch {
+      // Keep locally cached children when backend is unavailable.
+    }
+  }, [apiBase])
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
-      const res = await fetch(`${apiBase}/api/location/history/${encodeURIComponent(childId)}`)
+      if (!childId) {
+        setRaw([])
+        return
+      }
+      const params = new URLSearchParams({
+        from: String(rangeStart),
+        to: String(rangeEnd),
+        limit: '10000',
+      })
+      const res = await fetch(`${apiBase}/api/location/history/${encodeURIComponent(childId)}?${params}`)
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
         throw new Error(data.message || 'Could not load history.')
@@ -88,7 +112,11 @@ export default function History() {
     } finally {
       setLoading(false)
     }
-  }, [apiBase, childId])
+  }, [apiBase, childId, rangeStart, rangeEnd])
+
+  useEffect(() => {
+    loadChildren()
+  }, [loadChildren])
 
   useEffect(() => {
     load()
@@ -168,7 +196,11 @@ export default function History() {
       >
         <select
           value={childId}
-          onChange={(e) => setChildId(e.target.value)}
+          onChange={(e) => {
+            setChildId(e.target.value)
+            setExpandedKey(null)
+          }}
+          disabled={children.length === 0}
           style={{
             border: '2px solid var(--border)',
             background: '#fff',
@@ -180,11 +212,15 @@ export default function History() {
             letterSpacing: '0.05em',
           }}
         >
-          {children.map((child) => (
-            <option key={child.childId} value={child.childId}>
-              {child.displayName}
-            </option>
-          ))}
+          {children.length === 0 ? (
+            <option value="">No active children</option>
+          ) : (
+            children.map((child) => (
+              <option key={child.childId} value={child.childId}>
+                {child.displayName}
+              </option>
+            ))
+          )}
         </select>
         {dayTabs.map((tab, i) => (
           <button
@@ -224,9 +260,15 @@ export default function History() {
             </div>
           )}
 
-          {!loading && !error && raw.length === 0 && (
+          {!loading && !error && children.length === 0 && (
             <div style={{ padding: '24px 0', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
-              No GPS history yet for this child.
+              No active children to show history.
+            </div>
+          )}
+
+          {!loading && !error && children.length > 0 && raw.length === 0 && (
+            <div style={{ padding: '24px 0', color: 'var(--text-muted)', fontFamily: 'var(--font-body)' }}>
+              No GPS history in the last 7 days for this child.
             </div>
           )}
 
