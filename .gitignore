@@ -10,5 +10,4 @@ clms-backend/target/
 
 # Vite production build (regenerate with npm run build)
 kidguard-ui/dist/
-*.md
 report
